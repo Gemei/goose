@@ -16,6 +16,7 @@ export interface ScrollAreaHandle {
 interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
   autoScroll?: boolean;
   onScrollChange?: (isAtBottom: boolean) => void;
+  scrollbarClassName?: string;
   /* padding needs to be passed into the container inside ScrollArea to avoid pushing the scrollbar out */
   paddingX?: number;
   paddingY?: number;
@@ -29,6 +30,7 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       children,
       autoScroll = false,
       onScrollChange,
+      scrollbarClassName,
       paddingX,
       paddingY,
       handleScroll: handleScrollProp,
@@ -236,7 +238,7 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
             {autoScroll && <div ref={viewportEndRef} style={{ height: '1px' }} />}
           </div>
         </ScrollAreaPrimitive.Viewport>
-        <ScrollBar />
+        <ScrollBar className={scrollbarClassName} />
         <ScrollAreaPrimitive.Corner />
       </ScrollAreaPrimitive.Root>
     );

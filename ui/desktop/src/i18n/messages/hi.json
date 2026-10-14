@@ -137,6 +137,9 @@
   "baseChat.retry": {
     "defaultMessage": "पुनः प्रयास करें"
   },
+  "baseChat.scrollToBottom": {
+    "defaultMessage": "Scroll to bottom"
+  },
   "bottomMenuExtensionSelection.extensionUpdated": {
     "defaultMessage": "एक्सटेंशन अपडेट किया गया"
   },
@@ -1159,6 +1162,24 @@
   },
   "extensionModal.removeExtension": {
     "defaultMessage": "एक्सटेंशन हटाएँ"
+  },
+  "extensionModal.testErrorCount": {
+    "defaultMessage": "{count} with errors"
+  },
+  "extensionModal.testFailed": {
+    "defaultMessage": "MCP test failed: {error}"
+  },
+  "extensionModal.testMcp": {
+    "defaultMessage": "Test MCP"
+  },
+  "extensionModal.testNoTools": {
+    "defaultMessage": "MCP connected, but it did not list any tools."
+  },
+  "extensionModal.testWorking": {
+    "defaultMessage": "MCP is working. {count} tools found."
+  },
+  "extensionModal.testingMcp": {
+    "defaultMessage": "Testing…"
   },
   "extensionModal.unsavedChangesMessage": {
     "defaultMessage": "आपके पास एक्सटेंशन कॉन्फ़िगरेशन में सहेजे नहीं गए परिवर्तन हैं. क्या आप वाकई बिना सहेजे बंद करना चाहते हैं?"

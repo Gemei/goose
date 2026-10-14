@@ -1894,6 +1894,8 @@ ipcMain.handle('open-external', async (event, url: string) => {
   return openExternalUrl(url, senderWindow, getConfiguredGooseLocale());
 });
 
+ipcMain.handle('get-home-dir', () => os.homedir());
+
 ipcMain.handle('directory-chooser', async () => {
   return dialog.showOpenDialog({
     properties: ['openDirectory', 'createDirectory'],

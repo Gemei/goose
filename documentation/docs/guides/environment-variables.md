@@ -352,22 +352,22 @@ These variables configure network proxy settings for goose.
 
 ### OAuth Callback Port
 
-By default, goose starts a temporary local server on a random port to receive OAuth callbacks. Enterprise identity providers that require exact `redirect_uri` matching (and forbid wildcard ports) will reject the callback. Set this variable to use a fixed port instead.
+Goose listens for OAuth callbacks on `127.0.0.1` port `37374`. That redirect stays the same for a source build and for a downloaded release, so an authorization server registers one client. Set this variable to use another port. Set it to `0` to ask the OS for a port.
 
 | Variable | Purpose | Values | Default |
 |----------|---------|---------|---------|
-| `GOOSE_OAUTH_CALLBACK_PORT` | Fixed port for the local OAuth callback server | Port number (e.g., 8080, 9999) | Random (OS-assigned) |
+| `GOOSE_OAUTH_CALLBACK_PORT` | Port for the local OAuth callback server | Port number, or `0` for an OS-assigned port | `37374` |
 
-**Examples**
+Register this redirect with the authorization server:
+
+- MCP server OAuth: `http://127.0.0.1:37374/oauth_callback`
+- Databricks OAuth: `http://localhost:37374`
+
+To use another port:
 
 ```bash
-# Use a fixed port so your IdP's redirect_uri whitelist can match exactly
 export GOOSE_OAUTH_CALLBACK_PORT=8080
 ```
-
-Then register the appropriate redirect URI in your identity provider:
-- For MCP server OAuth: `http://127.0.0.1:8080/oauth_callback`
-- For Databricks OAuth: `http://localhost:8080`
 
 ### HTTP Proxy
 

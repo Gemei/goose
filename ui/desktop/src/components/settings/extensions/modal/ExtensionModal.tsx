@@ -16,6 +16,13 @@ import { PlusIcon, Edit, Trash2, AlertTriangle, Info } from 'lucide-react';
 import ExtensionInfoFields from './ExtensionInfoFields';
 import ExtensionTimeoutField from './ExtensionTimeoutField';
 import { acpUpsertConfig } from '../../../../acp/config';
+import { errorMessage } from '../../../../utils/conversionUtils';
+import {
+  envKeysToStore,
+  probeMcpExtension,
+  splitToolDescription,
+  type ProbeTool,
+} from '../../../../acp/probeExtension';
 import { ConfirmationModal } from '../../../ui/ConfirmationModal';
 import { defineMessages, useIntl } from '../../../../i18n';
 
@@ -57,6 +64,30 @@ const i18n = defineMessages({
     id: 'extensionModal.closeWithoutSaving',
     defaultMessage: 'Close Without Saving',
   },
+  testMcp: {
+    id: 'extensionModal.testMcp',
+    defaultMessage: 'Test MCP',
+  },
+  testingMcp: {
+    id: 'extensionModal.testingMcp',
+    defaultMessage: 'Testing…',
+  },
+  testWorking: {
+    id: 'extensionModal.testWorking',
+    defaultMessage: 'MCP is working. {count} tools found.',
+  },
+  testErrorCount: {
+    id: 'extensionModal.testErrorCount',
+    defaultMessage: '{count} with errors',
+  },
+  testNoTools: {
+    id: 'extensionModal.testNoTools',
+    defaultMessage: 'MCP connected, but it did not list any tools.',
+  },
+  testFailed: {
+    id: 'extensionModal.testFailed',
+    defaultMessage: 'MCP test failed: {error}',
+  },
 });
 
 interface ExtensionModalProps {
@@ -67,6 +98,63 @@ interface ExtensionModalProps {
   onDelete?: (name: string) => void;
   submitLabel: string;
   modalType: 'add' | 'edit';
+}
+
+function TestResultSummary({
+  error,
+  tools,
+  failedLabel,
+  workingLabel,
+  emptyLabel,
+  errorCountLabel,
+}: {
+  error: string | null;
+  tools: ProbeTool[] | null;
+  failedLabel: (error: string) => string;
+  workingLabel: (count: number) => string;
+  emptyLabel: string;
+  errorCountLabel: (count: number) => string;
+}) {
+  const described = (tools ?? []).map((tool) => ({
+    tool,
+    parts: splitToolDescription(tool.description),
+  }));
+  const errorCount = described.filter((item) => item.parts.errors).length;
+  const everyToolErrors = described.length > 0 && errorCount === described.length;
+
+  return (
+    <>
+      <p>
+        {error
+          ? failedLabel(error)
+          : described.length > 0
+            ? workingLabel(described.length)
+            : emptyLabel}
+        {!error && errorCount > 0 && (
+          <span className={everyToolErrors ? 'text-red-400' : 'text-amber-400'}>
+            {' '}
+            {errorCountLabel(errorCount)}
+          </span>
+        )}
+      </p>
+      {described.length > 0 && (
+        <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-text-secondary">
+          {described.map(({ tool, parts }) => (
+            <li key={tool.name}>
+              <span className="text-text-primary">{tool.name}</span>
+              {parts.summary ? ` — ${parts.summary}` : ''}
+              {parts.errors && (
+                <span className={parts.summary ? 'text-amber-400' : 'text-red-400'}>
+                  {parts.summary ? ' ' : ' — '}
+                  {parts.errors}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
 }
 
 export default function ExtensionModal({
@@ -87,6 +175,9 @@ export default function ExtensionModal({
   const [pendingEnvVar, setPendingEnvVar] = useState<{ key: string; value: string } | null>(null);
   const [hasPendingHeaders, setHasPendingHeaders] = useState(false);
   const [pendingHeader, setPendingHeader] = useState<{ key: string; value: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testTools, setTestTools] = useState<ProbeTool[] | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   // Function to check if form has been modified
   const hasFormChanges = (): boolean => {
@@ -331,6 +422,38 @@ export default function ExtensionModal({
     );
   };
 
+  const canTestMcp = formData.type === 'stdio' || formData.type === 'streamable_http';
+
+  const handleTest = async () => {
+    setSubmitAttempted(true);
+    if (!isFormValid() || !canTestMcp) return;
+
+    const finalFormData = {
+      ...formData,
+      envVars: getFinalEnvVars(),
+      headers: getFinalHeaders(),
+      timeout:
+        typeof formData.timeout === 'string' ? Number(formData.timeout) : formData.timeout,
+    };
+
+    setTesting(true);
+    setTestTools(null);
+    setTestError(null);
+    try {
+      for (const envVar of envKeysToStore(finalFormData)) {
+        const stored = await storeSecret(envVar.key, envVar.value);
+        if (!stored) {
+          throw new Error(`Could not store secret ${envVar.key}`);
+        }
+      }
+      setTestTools(await probeMcpExtension(finalFormData));
+    } catch (error) {
+      setTestError(errorMessage(error));
+    } finally {
+      setTesting(false);
+    }
+  };
+
   // Handle submit with validation and secret storage
   const handleSubmit = async () => {
     setSubmitAttempted(true);
@@ -477,6 +600,28 @@ export default function ExtensionModal({
             </div>
           )}
 
+          {!showDeleteConfirmation && (testTools || testError) && (
+            <div
+              role="status"
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                testError
+                  ? 'border-red-500/40 text-red-400'
+                  : testTools?.some((tool) => splitToolDescription(tool.description).errors)
+                    ? 'border-amber-500/40 text-text-primary'
+                    : 'border-border-primary text-text-primary'
+              }`}
+            >
+              <TestResultSummary
+                error={testError}
+                tools={testTools}
+                failedLabel={(error) => intl.formatMessage(i18n.testFailed, { error })}
+                workingLabel={(count) => intl.formatMessage(i18n.testWorking, { count })}
+                emptyLabel={intl.formatMessage(i18n.testNoTools)}
+                errorCountLabel={(count) => intl.formatMessage(i18n.testErrorCount, { count })}
+              />
+            </div>
+          )}
+
           <DialogFooter className="pt-2">
             {showDeleteConfirmation ? (
               <>
@@ -498,6 +643,18 @@ export default function ExtensionModal({
               </>
             ) : (
               <>
+                {canTestMcp && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleTest}
+                    disabled={testing || !isFormValid()}
+                  >
+                    {testing
+                      ? intl.formatMessage(i18n.testingMcp)
+                      : intl.formatMessage(i18n.testMcp)}
+                  </Button>
+                )}
                 {modalType === 'edit' && onDelete && (
                   <Button
                     onClick={() => setShowDeleteConfirmation(true)}

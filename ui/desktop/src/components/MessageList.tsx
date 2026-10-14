@@ -1,4 +1,14 @@
-import { Fragment, memo, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { isEqual } from 'lodash';
 import { defineMessages, useIntl } from '../i18n';
 import GooseMessage from './GooseMessage';
@@ -18,15 +28,16 @@ import type {
   SystemNotificationContent,
 } from '../types/message';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
-import {
-  deriveMessageRowContexts,
-  type InferenceModel,
-  inferenceModel,
-  isModelChange,
-  type MessageRowContext,
-} from './messageRowContext';
+import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
+import { AppEvents } from '../constants/events';
+import { ESTIMATED_MESSAGE_HEIGHT, messageOffset, messageWindow } from './messageWindow';
+import { clearTranscriptHighlights, paintTranscriptHighlights } from '../utils/transcriptHighlight';
 
 const i18n = defineMessages({
+  loadingMessages: {
+    id: 'progressiveMessageList.loadingMessages',
+    defaultMessage: 'Loading messages... ({renderedCount}/{totalCount})',
+  },
   modelChanged: {
     id: 'messageList.modelChanged',
     defaultMessage: 'Model changed: {previousModel} → {currentModel}',
@@ -108,6 +119,7 @@ function MessageRowComponent({
       <div
         className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} assistant`}
         data-testid="message-container"
+        data-message-index={index}
       >
         {renderSystemNotification(notification)}
       </div>
@@ -129,6 +141,7 @@ function MessageRowComponent({
       <div
         className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} ${isUser ? 'user' : 'assistant'} ${rowContext.isInToolCallChain ? 'in-chain' : ''}`}
         data-testid="message-container"
+        data-message-index={index}
       >
         {isUser ? (
           !hasOnlyToolResponses && (
@@ -160,6 +173,10 @@ interface MessageListProps {
   toolCallNotifications?: Map<string, NotificationEvent[]>;
   append?: (value: string) => void;
   isUserMessage: (message: Message) => boolean;
+  batchSize?: number;
+  batchDelay?: number;
+  showLoadingThreshold?: number;
+  renderMessage?: (message: Message, index: number) => ReactNode | null;
   isStreamingMessage?: boolean;
   onMessageUpdate?: (
     messageId: string,
@@ -168,96 +185,57 @@ interface MessageListProps {
     retainedImages: ImageData[]
   ) => void;
   onRenderingComplete?: () => void;
+  /** Scroll this message into view. Used by transcript search. */
+  focusedIndex?: number | null;
+  /** Term to highlight inside the focused message. Empty skips the paint. */
+  searchTerm?: string;
+  searchCaseSensitive?: boolean;
+  /** Which visible hit inside the focused message is the current one. */
+  searchOccurrence?: number;
   submitElicitationResponse?: (
     elicitationId: string,
     userData: Record<string, unknown>
   ) => Promise<boolean>;
 }
 
-export default function MessageList({
-  messages,
-  sessionId,
-  toolCallNotifications = emptyToolCallNotifications,
-  append = emptyAppend,
+function initialRevealedCount(length: number, threshold: number, batchSize: number) {
+  if (length === 0) return 0;
+  if (threshold > 0 && length <= threshold) return length;
+  return Math.min(batchSize, length);
+}
+
+interface SharedRowProps {
+  append: (value: string) => void;
+  isStreamingMessage: boolean;
+  isUserMessage: (message: Message) => boolean;
+  messages: Message[];
+  onMessageUpdate?: ProgressiveMessageListProps['onMessageUpdate'];
+  renderMessage?: ProgressiveMessageListProps['renderMessage'];
+  sessionId: string;
+  submitElicitationResponse?: ProgressiveMessageListProps['submitElicitationResponse'];
+  toolCallNotifications: Map<string, NotificationEvent[]>;
+}
+
+function useVisibleRows({
+  append,
+  end,
+  isStreamingMessage,
   isUserMessage,
-  isStreamingMessage = false,
+  messages,
   onMessageUpdate,
-  onRenderingComplete,
+  renderMessage,
+  sessionId,
+  start,
   submitElicitationResponse,
-}: MessageListProps) {
+  toolCallNotifications,
+}: SharedRowProps & { start: number; end: number }) {
   const intl = useIntl();
-  const [showAllMessages, setShowAllMessages] = useState(false);
-  const visibleMessages = useMemo(
-    () =>
-      messages.flatMap((message, index) =>
-        message.metadata.userVisible ? [{ message, index }] : []
-      ),
-    [messages]
-  );
-  const hiddenMessageCount = showAllMessages
-    ? 0
-    : Math.max(0, visibleMessages.length - MESSAGE_DISPLAY_LIMIT);
-  const hasHiddenMessages = hiddenMessageCount > 0;
-  const displayedMessages = useMemo(() => {
-    if (!hasHiddenMessages) {
-      return visibleMessages;
-    }
-
-    const tailStart = visibleMessages.length - TAIL_MESSAGE_COUNT;
-    return [...visibleMessages.slice(0, HEAD_MESSAGE_COUNT), ...visibleMessages.slice(tailStart)];
-  }, [hasHiddenMessages, visibleMessages]);
-
-  useEffect(() => {
-    onRenderingComplete?.();
-  }, [messages.length, onRenderingComplete, sessionId]);
-
-  useEffect(() => {
-    if (!hasHiddenMessages) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isMac = window.electron.platform === 'darwin';
-      const isSearchShortcut =
-        (isMac ? event.metaKey : event.ctrlKey) && !event.shiftKey && event.key === 'f';
-
-      if (isSearchShortcut) {
-        setShowAllMessages(true);
-      }
-    };
-    const handleFindCommand = () => setShowAllMessages(true);
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.electron.on('find-command', handleFindCommand);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.electron.off('find-command', handleFindCommand);
-    };
-  }, [hasHiddenMessages]);
-
   const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
-  const modelLabel = (model: InferenceModel) =>
-    model.confirmed
-      ? getModelDisplayName(model.id)
-      : intl.formatMessage(i18n.requestedModel, { model: getModelDisplayName(model.id) });
-  const messageRows: React.ReactNode[] = [];
 
-  displayedMessages.forEach(({ message, index }, displayedIndex) => {
-    if (hiddenMessageCount > 0 && displayedIndex === HEAD_MESSAGE_COUNT) {
-      messageRows.push(
-        <div
-          key="hidden-messages"
-          className="my-6 flex items-center justify-center gap-2 text-xs text-text-secondary"
-        >
-          <span>{intl.formatMessage(i18n.hiddenMessages, { count: hiddenMessageCount })}</span>
-          <button
-            type="button"
-            className="underline underline-offset-2 hover:text-text-primary"
-            onClick={() => setShowAllMessages(true)}
-          >
-            {intl.formatMessage(i18n.showAllMessages)}
-          </button>
-        </div>
-      );
-    }
+  return messages.slice(start, end).map((message, offset) => {
+    const index = start + offset;
+    if (!message.metadata.userVisible) return null;
+    if (renderMessage) return renderMessage(message, index);
 
     const isUser = isUserMessage(message);
     const messageIdentifier = message.id ?? `msg-${index}-${message.created}`;
@@ -265,20 +243,21 @@ export default function MessageList({
       ? `notification-${messageIdentifier}`
       : messageIdentifier;
     const rowContext = rowContexts[index];
-    const currentModel = inferenceModel(message);
-    const previousModel = rowContext.previousModel;
+    const currentResolvedModel = getResolvedModel(message);
     const modelChangeMessage =
-      currentModel && previousModel && isModelChange(previousModel, currentModel)
+      currentResolvedModel &&
+      rowContext.previousResolvedModel &&
+      currentResolvedModel !== rowContext.previousResolvedModel
         ? intl.formatMessage(i18n.modelChanged, {
-            previousModel: modelLabel(previousModel),
-            currentModel: modelLabel(currentModel),
+            previousModel: getModelDisplayName(rowContext.previousResolvedModel),
+            currentModel: getModelDisplayName(currentResolvedModel),
           })
         : null;
     const toolNotifications = rowContext.toolStates.map((toolState) =>
       toolCallNotifications.get(toolState.requestId)
     );
 
-    messageRows.push(
+    return (
       <MessageRow
         key={messageKey}
         append={append}
@@ -300,6 +279,478 @@ export default function MessageList({
       />
     );
   });
+}
 
-  return <>{messageRows}</>;
+function messageKeyOf(message: Message, index: number) {
+  return message.id ?? `msg-${index}-${message.created}`;
+}
+
+export default function ProgressiveMessageList(props: ProgressiveMessageListProps) {
+  const { messages, showLoadingThreshold = 50 } = props;
+  const virtualize = showLoadingThreshold > 0 && messages.length > showLoadingThreshold;
+
+  if (virtualize) {
+    return <VirtualMessageList {...props} />;
+  }
+
+  return <BatchedMessageList {...props} sessionId={props.sessionId} />;
+}
+
+function VirtualMessageList({
+  messages,
+  sessionId,
+  toolCallNotifications = emptyToolCallNotifications,
+  append = emptyAppend,
+  isUserMessage,
+  isStreamingMessage = false,
+  onMessageUpdate,
+  onRenderingComplete,
+  renderMessage,
+  submitElicitationResponse,
+  focusedIndex = null,
+  searchTerm = '',
+  searchCaseSensitive = false,
+  searchOccurrence = 0,
+}: ProgressiveMessageListProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const heightsRef = useRef(new Map<string, number>());
+  const [measureVersion, setMeasureVersion] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [positioned, setPositioned] = useState(false);
+  const followRef = useRef(true);
+  const suppressRef = useRef(false);
+  const searchLockRef = useRef(false);
+  const scrollTopRef = useRef(0);
+  const measureFlushRef = useRef(false);
+  const scrollingRef = useRef(false);
+  const pendingMeasureRef = useRef(false);
+  const scrollIdleRef = useRef<number | null>(null);
+  const completedSessionRef = useRef<string | null>(null);
+
+  const heights = useMemo(() => {
+    return messages.map((message, index) => {
+      if (!message.metadata.userVisible) return 0;
+      return heightsRef.current.get(messageKeyOf(message, index));
+    });
+    // measureVersion retargets the memo after a row reports a real height.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, measureVersion]);
+
+  const offsets = useMemo(() => {
+    const next = new Array<number>(heights.length);
+    let cursor = 0;
+    for (let index = 0; index < heights.length; index++) {
+      next[index] = cursor;
+      cursor += heights[index] ?? ESTIMATED_MESSAGE_HEIGHT;
+    }
+    return next;
+  }, [heights]);
+
+  const windowRange = messageWindow({
+    count: messages.length,
+    scrollTop,
+    viewportHeight,
+    heights,
+    // The first paint has no measured viewport, so show the tail. After that
+    // the window is always the real scroll offset. Nothing else writes scrollTop.
+    pinToBottom: !positioned,
+  });
+
+  const viewportOf = () => {
+    const viewport = listRef.current?.closest('[data-radix-scroll-area-viewport]');
+    return viewport instanceof HTMLElement ? viewport : null;
+  };
+
+  const scrollViewportTo = (viewport: HTMLElement, top: number) => {
+    const nextTop = Math.max(0, top);
+    suppressRef.current = true;
+    viewport.scrollTop = nextTop;
+    scrollTopRef.current = viewport.scrollTop;
+    setScrollTop(viewport.scrollTop);
+    setViewportHeight(viewport.clientHeight);
+  };
+
+  useEffect(() => {
+    const viewport = viewportOf();
+    if (!viewport) return;
+
+    // Keep the thumb glued to the gesture. Measured row heights are applied
+    // after the drag, and they do not move scrollTop.
+    const markScrolling = () => {
+      scrollingRef.current = true;
+      if (scrollIdleRef.current !== null) window.clearTimeout(scrollIdleRef.current);
+      scrollIdleRef.current = window.setTimeout(() => {
+        scrollingRef.current = false;
+        scrollIdleRef.current = null;
+        if (!pendingMeasureRef.current) return;
+        pendingMeasureRef.current = false;
+        setMeasureVersion((version) => version + 1);
+      }, 120);
+    };
+    const read = () => {
+      const nextTop = viewport.scrollTop;
+      const nextHeight = viewport.clientHeight;
+      const distance = viewport.scrollHeight - nextTop - nextHeight;
+      if (suppressRef.current) suppressRef.current = false;
+      else {
+        searchLockRef.current = false;
+        if (distance <= 1) followRef.current = true;
+        else markScrolling();
+      }
+
+      const previous = messageWindow({
+        count: messages.length,
+        scrollTop: scrollTopRef.current,
+        viewportHeight: nextHeight,
+        heights,
+        pinToBottom: false,
+      });
+      const next = messageWindow({
+        count: messages.length,
+        scrollTop: nextTop,
+        viewportHeight: nextHeight,
+        heights,
+        pinToBottom: false,
+      });
+      scrollTopRef.current = nextTop;
+      if (previous.start !== next.start || previous.end !== next.end) setScrollTop(nextTop);
+      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+    const leaveBottom = (event: WheelEvent) => {
+      if (event.deltaY < 0) followRef.current = false;
+    };
+    const leaveFromScrollbar = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-orientation="vertical"]')) {
+        followRef.current = false;
+      }
+    };
+
+    const previousAnchor = viewport.style.overflowAnchor;
+    viewport.style.overflowAnchor = 'none';
+    read();
+    viewport.addEventListener('scroll', read, { passive: true });
+    viewport.addEventListener('wheel', leaveBottom, { passive: true });
+    viewport.parentElement?.addEventListener('pointerdown', leaveFromScrollbar);
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            setViewportHeight(viewport.clientHeight);
+          });
+    observer?.observe(viewport);
+    return () => {
+      viewport.style.overflowAnchor = previousAnchor;
+      viewport.removeEventListener('scroll', read);
+      viewport.removeEventListener('wheel', leaveBottom);
+      viewport.parentElement?.removeEventListener('pointerdown', leaveFromScrollbar);
+      observer?.disconnect();
+      if (scrollIdleRef.current !== null) window.clearTimeout(scrollIdleRef.current);
+    };
+  }, [heights, messages.length, sessionId]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportOf();
+    if (!viewport) return;
+
+    if (!positioned) {
+      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
+      setPositioned(true);
+      return;
+    }
+
+    if (searchLockRef.current || !followRef.current) return;
+    const nextTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    if (Math.abs(viewport.scrollTop - nextTop) > 1) {
+      scrollViewportTo(viewport, nextTop);
+    }
+  }, [heights, messages.length, positioned, viewportHeight]);
+
+  useLayoutEffect(() => {
+    if (focusedIndex == null || focusedIndex < 0) {
+      searchLockRef.current = false;
+      if (listRef.current) clearTranscriptHighlights(listRef.current);
+      return;
+    }
+    const viewport = viewportOf();
+    if (!viewport) return;
+    searchLockRef.current = true;
+    followRef.current = false;
+    const top = (listRef.current?.offsetTop ?? 0) + messageOffset(heights, focusedIndex);
+    scrollViewportTo(viewport, top);
+  }, [focusedIndex]);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    clearTranscriptHighlights(list);
+    const term = searchTerm.trim();
+    if (!term || focusedIndex == null || focusedIndex < 0) return;
+
+    const row = list.querySelector(`[data-message-index="${focusedIndex}"]`);
+    if (!(row instanceof HTMLElement)) return;
+
+    const current = paintTranscriptHighlights(row, term, searchCaseSensitive, searchOccurrence);
+    if (!searchLockRef.current) return;
+    const viewport = viewportOf();
+    if (!viewport) return;
+
+    const target = current ?? row;
+    const targetRect = target.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    if (targetRect.width === 0 && targetRect.height === 0) return;
+    const centered =
+      viewport.scrollTop +
+      (targetRect.top - viewportRect.top) -
+      Math.max(0, (viewport.clientHeight - targetRect.height) / 2);
+    if (Math.abs(viewport.scrollTop - centered) > 2) {
+      followRef.current = false;
+      scrollViewportTo(viewport, centered);
+    }
+  }, [
+    focusedIndex,
+    measureVersion,
+    searchCaseSensitive,
+    searchOccurrence,
+    searchTerm,
+    windowRange.end,
+    windowRange.start,
+  ]);
+
+  useEffect(() => {
+    const scrollToEnd = () => {
+      const viewport = viewportOf();
+      if (!viewport) return;
+      searchLockRef.current = false;
+      followRef.current = true;
+      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
+    };
+
+    window.addEventListener(AppEvents.SCROLL_CHAT_TO_BOTTOM, scrollToEnd);
+    return () => window.removeEventListener(AppEvents.SCROLL_CHAT_TO_BOTTOM, scrollToEnd);
+  }, []);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const completedKey = sessionId;
+    if (completedSessionRef.current === completedKey) return;
+
+    const timeout = window.setTimeout(() => {
+      completedSessionRef.current = completedKey;
+      onRenderingComplete?.();
+    }, 50);
+
+    return () => window.clearTimeout(timeout);
+  }, [messages.length, onRenderingComplete, sessionId]);
+
+  const recordHeight = useCallback((key: string, height: number) => {
+    if (height <= 0) return;
+    const previous = heightsRef.current.get(key);
+    if (previous !== undefined && Math.abs(previous - height) < 1) return;
+    heightsRef.current.set(key, height);
+    if (scrollingRef.current) {
+      pendingMeasureRef.current = true;
+      return;
+    }
+    if (measureFlushRef.current) return;
+    measureFlushRef.current = true;
+    queueMicrotask(() => {
+      measureFlushRef.current = false;
+      setMeasureVersion((version) => version + 1);
+    });
+  }, []);
+
+  const rows = useVisibleRows({
+    append,
+    end: windowRange.end,
+    isStreamingMessage,
+    isUserMessage,
+    messages,
+    onMessageUpdate,
+    renderMessage,
+    sessionId,
+    start: windowRange.start,
+    submitElicitationResponse,
+    toolCallNotifications,
+  });
+
+  return (
+    <div
+      ref={listRef}
+      data-testid="virtual-message-list"
+      style={{ position: 'relative', height: windowRange.totalHeight, overflowAnchor: 'none' }}
+    >
+      {messages.slice(windowRange.start, windowRange.end).map((message, offset) => {
+        const index = windowRange.start + offset;
+        const key = messageKeyOf(message, index);
+        return (
+          <div
+            key={key}
+            style={{
+              position: 'absolute',
+              top: offsets[index] ?? 0,
+              left: 0,
+              right: 0,
+              overflowAnchor: 'none',
+            }}
+          >
+            <MeasuredRow messageKey={key} messageIndex={index} onHeight={recordHeight}>
+              {rows[offset]}
+            </MeasuredRow>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MeasuredRow({
+  children,
+  messageKey,
+  messageIndex,
+  onHeight,
+}: {
+  children: ReactNode;
+  messageKey: string;
+  messageIndex: number;
+  onHeight: (messageKey: string, height: number) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const measure = () => {
+      onHeight(messageKey, element.getBoundingClientRect().height);
+    };
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [messageKey, onHeight]);
+
+  return (
+    <div
+      ref={ref}
+      data-message-index={messageIndex}
+      style={{ display: 'flow-root', position: 'relative' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function BatchedMessageList({
+  messages,
+  sessionId,
+  toolCallNotifications = emptyToolCallNotifications,
+  append = emptyAppend,
+  isUserMessage,
+  isStreamingMessage = false,
+  onMessageUpdate,
+  onRenderingComplete,
+  submitElicitationResponse,
+  focusedIndex = null,
+  searchTerm = '',
+  searchCaseSensitive = false,
+  searchOccurrence = 0,
+}: ProgressiveMessageListProps) {
+  const intl = useIntl();
+  const [renderedCount, setRenderedCount] = useState(() =>
+    initialRevealedCount(messages.length, showLoadingThreshold, batchSize)
+  );
+  const completedMessageKeyRef = useRef<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const isLoading = renderedCount < messages.length;
+
+  useEffect(() => {
+    setRenderedCount((current) => {
+      if (showLoadingThreshold > 0 && messages.length <= showLoadingThreshold) {
+        return messages.length;
+      }
+      if (messages.length === 0) return 0;
+      if (current === 0) {
+        return initialRevealedCount(messages.length, showLoadingThreshold, batchSize);
+      }
+      return Math.min(current, messages.length);
+    });
+  }, [batchSize, messages.length, showLoadingThreshold]);
+
+  useEffect(() => {
+    if (messages.length <= showLoadingThreshold || !isLoading) return;
+
+    const timeout = window.setTimeout(() => {
+      setRenderedCount((current) => Math.min(current + batchSize, messages.length));
+    }, batchDelay);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    batchDelay,
+    batchSize,
+    isLoading,
+    messages.length,
+    renderedCount,
+    showLoadingThreshold,
+  ]);
+
+  useEffect(() => {
+    onRenderingComplete?.();
+  }, [messages.length, onRenderingComplete, sessionId]);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    clearTranscriptHighlights(list);
+    const term = searchTerm.trim();
+    if (!term || focusedIndex == null || focusedIndex < 0) return;
+    const row = list.querySelector(`[data-message-index="${focusedIndex}"]`);
+    if (!(row instanceof HTMLElement)) return;
+    const current = paintTranscriptHighlights(row, term, searchCaseSensitive, searchOccurrence);
+    const viewport = list.closest('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLElement)) return;
+    const target = current ?? row;
+    const targetRect = target.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    if (targetRect.width === 0 && targetRect.height === 0) return;
+    const centered =
+      viewport.scrollTop +
+      (targetRect.top - viewportRect.top) -
+      Math.max(0, (viewport.clientHeight - targetRect.height) / 2);
+    if (Math.abs(viewport.scrollTop - centered) > 2) viewport.scrollTop = centered;
+  }, [focusedIndex, renderedCount, searchCaseSensitive, searchOccurrence, searchTerm]);
+
+  const rows = useVisibleRows({
+    append,
+    end: Math.min(renderedCount, messages.length),
+    isStreamingMessage,
+    isUserMessage,
+    messages,
+    onMessageUpdate,
+    renderMessage,
+    sessionId,
+    start: 0,
+    submitElicitationResponse,
+    toolCallNotifications,
+  });
+
+  return (
+    <div ref={listRef}>
+      {rows}
+
+      {isLoading && (
+        <div className="flex flex-col items-center justify-center py-8">
+          <LoadingGoose
+            message={intl.formatMessage(i18n.loadingMessages, {
+              renderedCount,
+              totalCount: messages.length,
+            })}
+          />
+        </div>
+      )}
+    </div>
+  );
 }

@@ -25,6 +25,10 @@ const CALLBACK_TEMPLATE: &str = include_str!("oauth_callback.html");
 const CLIENT_METADATA_URL: &str = "https://goose-docs.ai/oauth/client-metadata.json";
 const DEFAULT_OAUTH_CALLBACK_TIMEOUT_SECS: u64 = 300;
 const OAUTH_CALLBACK_TIMEOUT_ENV: &str = "GOOSE_OAUTH_CALLBACK_TIMEOUT_SECONDS";
+/// Stable loopback port so a rebuilt binary and a downloaded release register
+/// the same OAuth redirect (`http://127.0.0.1:37374/oauth_callback`).
+pub const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 37374;
+const OAUTH_CALLBACK_PORT_ENV: &str = "GOOSE_OAUTH_CALLBACK_PORT";
 
 /// Pre-registered OAuth client supplied by a probe script, for servers whose
 /// authorization server supports neither Dynamic Client Registration nor
@@ -60,6 +64,24 @@ fn resolve_oauth_callback_timeout(value: Option<&str>) -> Duration {
 fn oauth_callback_timeout() -> Duration {
     let timeout = std::env::var(OAUTH_CALLBACK_TIMEOUT_ENV).ok();
     resolve_oauth_callback_timeout(timeout.as_deref())
+}
+
+/// Port for the local OAuth callback listener.
+///
+/// Missing or invalid `GOOSE_OAUTH_CALLBACK_PORT` uses
+/// [`DEFAULT_OAUTH_CALLBACK_PORT`]. An explicit `0` asks the OS for an
+/// ephemeral port.
+pub fn oauth_callback_bind_port() -> u16 {
+    let port = std::env::var(OAUTH_CALLBACK_PORT_ENV).ok();
+    resolve_oauth_callback_port(port.as_deref())
+}
+
+fn resolve_oauth_callback_port(value: Option<&str>) -> u16 {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        None => DEFAULT_OAUTH_CALLBACK_PORT,
+        Some("0") => 0,
+        Some(value) => value.parse().unwrap_or(DEFAULT_OAUTH_CALLBACK_PORT),
+    }
 }
 
 fn render_oauth_callback(name: &str) -> String {
@@ -437,10 +459,7 @@ pub async fn oauth_flow_with_challenge(
         .route("/oauth_callback", get(handler))
         .with_state(app_state);
 
-    let port = std::env::var("GOOSE_OAUTH_CALLBACK_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(0);
+    let port = oauth_callback_bind_port();
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
     let used_addr = listener.local_addr()?;
     let server_handle = tokio::spawn(async move {
@@ -543,6 +562,19 @@ mod tests {
             resolve_oauth_callback_timeout(Some("42")),
             Duration::from_secs(42)
         );
+    }
+
+    #[test]
+    fn resolve_oauth_callback_port_uses_the_fixed_default() {
+        assert_eq!(resolve_oauth_callback_port(None), DEFAULT_OAUTH_CALLBACK_PORT);
+        assert_eq!(
+            resolve_oauth_callback_port(Some("not-a-port")),
+            DEFAULT_OAUTH_CALLBACK_PORT
+        );
+        assert_eq!(resolve_oauth_callback_port(Some("")), DEFAULT_OAUTH_CALLBACK_PORT);
+        assert_eq!(resolve_oauth_callback_port(Some(" 37374 ")), 37374);
+        assert_eq!(resolve_oauth_callback_port(Some("8080")), 8080);
+        assert_eq!(resolve_oauth_callback_port(Some("0")), 0);
     }
 
     #[test]

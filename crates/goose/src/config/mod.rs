@@ -1,5 +1,6 @@
 pub mod base;
 pub mod declarative_providers;
+mod secret_file;
 mod experiments;
 pub mod extensions;
 mod migrations;

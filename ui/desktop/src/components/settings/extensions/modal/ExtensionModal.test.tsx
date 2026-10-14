@@ -5,6 +5,18 @@ import ExtensionModal from './ExtensionModal';
 import { ExtensionFormData } from '../utils';
 import { IntlTestWrapper } from '../../../../i18n/test-utils';
 import { acpUpsertConfig } from '../../../../acp/config';
+import { probeMcpExtension } from '../../../../acp/probeExtension';
+
+vi.mock('../../../../acp/probeExtension', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../../../acp/probeExtension')>(
+      '../../../../acp/probeExtension'
+    );
+  return {
+    ...actual,
+    probeMcpExtension: vi.fn(),
+  };
+});
 
 vi.mock('../../../../acp/config', async () => {
   const actual =
@@ -16,6 +28,7 @@ vi.mock('../../../../acp/config', async () => {
 });
 
 const mockedUpsertConfig = vi.mocked(acpUpsertConfig);
+const mockedProbe = vi.mocked(probeMcpExtension);
 
 const renderWithIntl = (ui: React.ReactElement, options?: RenderOptions) =>
   render(ui, { wrapper: IntlTestWrapper, ...options });
@@ -380,5 +393,120 @@ describe('ExtensionModal', () => {
         expect.arrayContaining([expect.objectContaining({ key: 'LONELY_KEY' })])
       );
     });
+  });
+
+  it('lists tools when Test MCP succeeds', async () => {
+    const user = userEvent.setup();
+    mockedProbe.mockResolvedValue([{ name: 'anytype__search', description: 'Search objects' }]);
+
+    renderWithIntl(
+      <ExtensionModal
+        title="Update Extension"
+        initialData={{
+          name: 'AnyType',
+          description: '',
+          type: 'stdio',
+          cmd: 'npx -y @anyproto/anytype-mcp',
+          endpoint: '',
+          enabled: true,
+          timeout: 300,
+          envVars: [{ key: 'OPENAPI_MCP_HEADERS', value: '••••••••', isEdited: false }],
+          headers: [],
+        }}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        submitLabel="Save Changes"
+        modalType="edit"
+        onDelete={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Test MCP' }));
+
+    expect(await screen.findByText('MCP is working. 1 tools found.')).toBeInTheDocument();
+    expect(screen.getByText('anytype__search')).toBeInTheDocument();
+    expect(mockedUpsertConfig).not.toHaveBeenCalled();
+    expect(mockedProbe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'AnyType',
+        envVars: [expect.objectContaining({ key: 'OPENAPI_MCP_HEADERS', value: '••••••••' })],
+      })
+    );
+  });
+
+  it('colors documented tool errors and counts them', async () => {
+    const user = userEvent.setup();
+    mockedProbe.mockResolvedValue([
+      { name: 'notion_API-get-page', description: 'Notion | Retrieve a page' },
+      {
+        name: 'notion_API-update-a-block',
+        description: 'Notion | Update a block Error Responses: 400: Bad request',
+      },
+    ]);
+
+    renderWithIntl(
+      <ExtensionModal
+        title="Update Extension"
+        initialData={{
+          name: 'Notion',
+          description: '',
+          type: 'stdio',
+          cmd: 'npx -y @notionhq/notion-mcp-server',
+          endpoint: '',
+          enabled: true,
+          timeout: 300,
+          envVars: [],
+          headers: [],
+        }}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        submitLabel="Save Changes"
+        modalType="edit"
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Test MCP' }));
+
+    expect(await screen.findByText('1 with errors')).toBeInTheDocument();
+    const errorText = screen.getByText('Error Responses: 400: Bad request');
+    expect(errorText.className).toContain('text-amber-400');
+    expect(screen.getByText('notion_API-get-page')).toBeInTheDocument();
+  });
+
+  it('shows the ACP error detail when Test MCP fails', async () => {
+    const user = userEvent.setup();
+    const failure = Object.assign(new Error('Internal error'), {
+      data: 'Failed to save credentials: token exceeds the Windows credential limit',
+    });
+    mockedProbe.mockRejectedValue(failure);
+
+    renderWithIntl(
+      <ExtensionModal
+        title="Update Extension"
+        initialData={{
+          name: 'Notion',
+          description: '',
+          type: 'streamable_http',
+          cmd: '',
+          endpoint: 'https://mcp.notion.com/mcp',
+          enabled: true,
+          timeout: 300,
+          envVars: [],
+          headers: [],
+        }}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        submitLabel="Save Changes"
+        modalType="edit"
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Test MCP' }));
+
+    expect(
+      await screen.findByText(
+        'MCP test failed: Failed to save credentials: token exceeds the Windows credential limit'
+      )
+    ).toBeInTheDocument();
   });
 });

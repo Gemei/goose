@@ -364,9 +364,9 @@ extensions:
   from the server's advertised metadata, which may be broader than the
   extension needs.
 
-The OAuth callback is served on `127.0.0.1` with an ephemeral port; set
-`GOOSE_OAUTH_CALLBACK_PORT` if the authorization server only allows a
-pre-registered redirect URI with a fixed port.
+The OAuth callback is served on `http://127.0.0.1:37374/oauth_callback`.
+Set `GOOSE_OAUTH_CALLBACK_PORT` to use another port, or set it to `0` for an
+OS-assigned port.
 
 ## Enabling/Disabling Extensions
 
