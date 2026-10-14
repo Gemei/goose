@@ -137,6 +137,9 @@
   "baseChat.retry": {
     "defaultMessage": "Wiederholen"
   },
+  "baseChat.scrollToBottom": {
+    "defaultMessage": "Scroll to bottom"
+  },
   "bottomMenuExtensionSelection.extensionUpdated": {
     "defaultMessage": "Erweiterung aktualisiert"
   },
@@ -1153,6 +1156,24 @@
   },
   "extensionModal.removeExtension": {
     "defaultMessage": "Erweiterung entfernen"
+  },
+  "extensionModal.testErrorCount": {
+    "defaultMessage": "{count} with errors"
+  },
+  "extensionModal.testFailed": {
+    "defaultMessage": "MCP test failed: {error}"
+  },
+  "extensionModal.testMcp": {
+    "defaultMessage": "Test MCP"
+  },
+  "extensionModal.testNoTools": {
+    "defaultMessage": "MCP connected, but it did not list any tools."
+  },
+  "extensionModal.testWorking": {
+    "defaultMessage": "MCP is working. {count} tools found."
+  },
+  "extensionModal.testingMcp": {
+    "defaultMessage": "Testing…"
   },
   "extensionModal.unsavedChangesMessage": {
     "defaultMessage": "Sie haben nicht gespeicherte Änderungen an der Erweiterungskonfiguration. Möchten Sie wirklich schließen, ohne zu speichern?"
@@ -2638,9 +2659,6 @@
   },
   "progressiveMessageList.modelChanged": {
     "defaultMessage": "Modell geändert: {previousModel} → {currentModel}"
-  },
-  "progressiveMessageList.searchHint": {
-    "defaultMessage": "Drücken Sie Cmd/Ctrl+F, um alle Nachrichten sofort für die Suche zu laden"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Alle Prompts auf die Standardwerte zurückgesetzt"

@@ -137,6 +137,9 @@
   "baseChat.retry": {
     "defaultMessage": "Yeniden dene"
   },
+  "baseChat.scrollToBottom": {
+    "defaultMessage": "Scroll to bottom"
+  },
   "bottomMenuExtensionSelection.extensionUpdated": {
     "defaultMessage": "Uzantı Güncellendi"
   },
@@ -1153,6 +1156,24 @@
   },
   "extensionModal.removeExtension": {
     "defaultMessage": "Uzantıyı kaldır"
+  },
+  "extensionModal.testErrorCount": {
+    "defaultMessage": "{count} with errors"
+  },
+  "extensionModal.testFailed": {
+    "defaultMessage": "MCP test failed: {error}"
+  },
+  "extensionModal.testMcp": {
+    "defaultMessage": "Test MCP"
+  },
+  "extensionModal.testNoTools": {
+    "defaultMessage": "MCP connected, but it did not list any tools."
+  },
+  "extensionModal.testWorking": {
+    "defaultMessage": "MCP is working. {count} tools found."
+  },
+  "extensionModal.testingMcp": {
+    "defaultMessage": "Testing…"
   },
   "extensionModal.unsavedChangesMessage": {
     "defaultMessage": "Uzantı yapılandırmasında kaydedilmemiş değişiklikleriniz var. Kaydetmeden kapatmak istediğinizden emin misiniz?"
@@ -2638,9 +2659,6 @@
   },
   "progressiveMessageList.modelChanged": {
     "defaultMessage": "Model değişti: {previousModel} → {currentModel}"
-  },
-  "progressiveMessageList.searchHint": {
-    "defaultMessage": "Arama amacıyla tüm mesajları anında yüklemek için Cmd/Ctrl+F tuşlarına basın"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Tüm istemler varsayılanlara sıfırlandı"

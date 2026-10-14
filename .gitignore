@@ -97,5 +97,11 @@ gooseselftest/
 /crates/goose-sdk/examples/uniffi/kotlin/.gradle/
 /crates/goose-sdk/examples/uniffi/kotlin/.kotlin/
 /crates/goose-sdk/examples/uniffi/kotlin/build/
+/crates/goose-sdk/examples/uniffi/kotlin/bin/
+
+# pnpm writes these when a workspace package is installed on its own.
+# The lock that belongs in git is ui/pnpm-lock.yaml.
+/ui/desktop/pnpm-lock.yaml
+/ui/goose-acp-client/pnpm-lock.yaml
 
 live-in-desktop-design

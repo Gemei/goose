@@ -158,6 +158,9 @@
   "baseChat.retry": {
     "defaultMessage": "Retry"
   },
+  "baseChat.scrollToBottom": {
+    "defaultMessage": "Scroll to bottom"
+  },
   "bottomMenuExtensionSelection.extensionUpdated": {
     "defaultMessage": "Extension Updated"
   },
@@ -1162,6 +1165,24 @@
   },
   "extensionModal.removeExtension": {
     "defaultMessage": "Remove extension"
+  },
+  "extensionModal.testErrorCount": {
+    "defaultMessage": "{count} with errors"
+  },
+  "extensionModal.testFailed": {
+    "defaultMessage": "MCP test failed: {error}"
+  },
+  "extensionModal.testMcp": {
+    "defaultMessage": "Test MCP"
+  },
+  "extensionModal.testNoTools": {
+    "defaultMessage": "MCP connected, but it did not list any tools."
+  },
+  "extensionModal.testWorking": {
+    "defaultMessage": "MCP is working. {count} tools found."
+  },
+  "extensionModal.testingMcp": {
+    "defaultMessage": "Testing…"
   },
   "extensionModal.unsavedChangesMessage": {
     "defaultMessage": "You have unsaved changes to the extension configuration. Are you sure you want to close without saving?"
@@ -2662,9 +2683,6 @@
   },
   "progressiveMessageList.modelChanged": {
     "defaultMessage": "Model changed: {previousModel} → {currentModel}"
-  },
-  "progressiveMessageList.searchHint": {
-    "defaultMessage": "Press Cmd/Ctrl+F to load all messages immediately for search"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "All prompts reset to defaults"

@@ -137,6 +137,9 @@
   "baseChat.retry": {
     "defaultMessage": "Thử lại"
   },
+  "baseChat.scrollToBottom": {
+    "defaultMessage": "Scroll to bottom"
+  },
   "bottomMenuExtensionSelection.extensionUpdated": {
     "defaultMessage": "Đã cập nhật tiện ích mở rộng"
   },
@@ -1153,6 +1156,24 @@
   },
   "extensionModal.removeExtension": {
     "defaultMessage": "Xóa tiện ích mở rộng"
+  },
+  "extensionModal.testErrorCount": {
+    "defaultMessage": "{count} with errors"
+  },
+  "extensionModal.testFailed": {
+    "defaultMessage": "MCP test failed: {error}"
+  },
+  "extensionModal.testMcp": {
+    "defaultMessage": "Test MCP"
+  },
+  "extensionModal.testNoTools": {
+    "defaultMessage": "MCP connected, but it did not list any tools."
+  },
+  "extensionModal.testWorking": {
+    "defaultMessage": "MCP is working. {count} tools found."
+  },
+  "extensionModal.testingMcp": {
+    "defaultMessage": "Testing…"
   },
   "extensionModal.unsavedChangesMessage": {
     "defaultMessage": "Bạn có các thay đổi chưa lưu đối với cấu hình tiện ích mở rộng. Bạn có chắc chắn muốn đóng mà không lưu không?"
@@ -2638,9 +2659,6 @@
   },
   "progressiveMessageList.modelChanged": {
     "defaultMessage": "Mô hình đã thay đổi: {previousModel} → {currentModel}"
-  },
-  "progressiveMessageList.searchHint": {
-    "defaultMessage": "Nhấn Cmd/Ctrl+F để tải ngay tất cả tin nhắn nhằm tìm kiếm"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Tất cả lời nhắc đã được đặt lại về mặc định"

@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 fn write_secrets_file(path: &Path, content: &str) -> std::io::Result<()> {
-    write_private_file(path, content)
+    let stored = super::secret_file::encode_secrets_file(content)?;
+    write_private_file(path, &stored)
 }
 
 fn secrets_lock_path(path: &Path) -> PathBuf {
@@ -1153,18 +1154,26 @@ impl Config {
         })
     }
 
-    /// Read secrets from a YAML file
+    /// Read secrets from a YAML file.
+    ///
+    /// On Windows a legacy plaintext file is sealed with DPAPI after a
+    /// successful read so the secret values do not stay on disk in the clear.
     fn read_secrets_from_file(&self, path: &Path) -> Result<HashMap<String, Value>, ConfigError> {
-        if path.exists() {
-            let file_content = std::fs::read_to_string(path)?;
-            let yaml_value: serde_yaml::Value = serde_yaml::from_str(&file_content)?;
-            let json_value: Value = serde_json::to_value(yaml_value)?;
-            match json_value {
-                Value::Object(map) => Ok(map.into_iter().collect()),
-                _ => Ok(HashMap::new()),
+        if !path.exists() {
+            return Ok(HashMap::new());
+        }
+        let file_content = std::fs::read_to_string(path)?;
+        let decoded = super::secret_file::decode_secrets_file(&file_content)?;
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&decoded.yaml)?;
+        if decoded.was_plaintext && !decoded.yaml.trim().is_empty() {
+            if let Err(error) = write_secrets_file(path, &decoded.yaml) {
+                tracing::warn!("Failed to seal secrets with DPAPI: {error}");
             }
-        } else {
-            Ok(HashMap::new())
+        }
+        let json_value: Value = serde_json::to_value(yaml_value)?;
+        match json_value {
+            Value::Object(map) => Ok(map.into_iter().collect()),
+            _ => Ok(HashMap::new()),
         }
     }
 
@@ -1205,12 +1214,7 @@ impl Config {
     /// Check if an error string indicates a keyring availability issue that should trigger fallback
     #[cfg(feature = "system-keyring")]
     fn is_keyring_availability_error(&self, error_str: &str) -> bool {
-        let lower = error_str.to_lowercase();
-        lower.contains("keyring")
-            || lower.contains("dbus")
-            || lower.contains("org.freedesktop.secrets")
-            || lower.contains("platform secure storage")
-            || lower.contains("no secret service")
+        keyring_error_uses_file_fallback(error_str)
     }
 
     /// Get a keyring entry for the specified service
@@ -1260,9 +1264,47 @@ impl Config {
         // Perform the operation
         match operation(entry) {
             Ok(result) => Ok(result),
-            Err(keyring_err) => self.handle_keyring_fallback_error(&keyring_err, fallback_values),
+            Err(keyring_err) => {
+                let message = keyring_err.to_string();
+                let result = self.handle_keyring_fallback_error(&keyring_err, fallback_values);
+                // Windows Credential Manager rejects secrets whose UTF-16 form
+                // exceeds 2560 bytes. OAuth token blobs hit that limit. The file
+                // write above keeps the new secret, but a later read still
+                // returns the old keyring entry unless that entry is removed.
+                if fallback_values.is_some()
+                    && matches!(result, Err(ConfigError::FallbackToFileStorage))
+                    && keyring_error_exceeds_platform_limit(&message)
+                {
+                    if let Ok(entry) = Self::get_keyring_entry(service) {
+                        if let Err(delete_err) = entry.delete_credential() {
+                            tracing::warn!(
+                                "Failed to remove oversized keyring secret after falling back to file storage: {delete_err}"
+                            );
+                        }
+                    }
+                }
+                result
+            }
         }
     }
+}
+
+/// Keyring failures that should store secrets in the file fallback instead.
+fn keyring_error_uses_file_fallback(error_str: &str) -> bool {
+    let lower = error_str.to_lowercase();
+    lower.contains("keyring")
+        || lower.contains("dbus")
+        || lower.contains("org.freedesktop.secrets")
+        || lower.contains("platform secure storage")
+        || lower.contains("no secret service")
+        || keyring_error_exceeds_platform_limit(error_str)
+}
+
+/// Windows Credential Manager `CRED_MAX_CREDENTIAL_BLOB_SIZE` (2560 bytes).
+fn keyring_error_exceeds_platform_limit(error_str: &str) -> bool {
+    error_str
+        .to_lowercase()
+        .contains("longer than platform limit")
 }
 
 config_value!(CLAUDE_CODE_COMMAND, String, "claude");
@@ -1464,6 +1506,17 @@ mod tests {
     use super::*;
     use serial_test::serial;
     use tempfile::{NamedTempFile, TempDir};
+
+    #[test]
+    fn windows_credential_size_limit_falls_back_to_file_storage() {
+        let error =
+            "Attribute 'password encoded as UTF-16' is longer than platform limit of 2560 chars";
+        assert!(keyring_error_exceeds_platform_limit(error));
+        assert!(keyring_error_uses_file_fallback(error));
+        assert!(!keyring_error_exceeds_platform_limit(
+            "No matching entry found in secure storage"
+        ));
+    }
 
     #[test]
     fn resolve_goose_mode_defaults_only_when_missing() {

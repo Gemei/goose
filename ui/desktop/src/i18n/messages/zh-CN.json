@@ -137,6 +137,9 @@
   "baseChat.retry": {
     "defaultMessage": "重试"
   },
+  "baseChat.scrollToBottom": {
+    "defaultMessage": "Scroll to bottom"
+  },
   "bottomMenuExtensionSelection.extensionUpdated": {
     "defaultMessage": "扩展已更新"
   },
@@ -1153,6 +1156,24 @@
   },
   "extensionModal.removeExtension": {
     "defaultMessage": "移除扩展"
+  },
+  "extensionModal.testErrorCount": {
+    "defaultMessage": "{count} with errors"
+  },
+  "extensionModal.testFailed": {
+    "defaultMessage": "MCP test failed: {error}"
+  },
+  "extensionModal.testMcp": {
+    "defaultMessage": "Test MCP"
+  },
+  "extensionModal.testNoTools": {
+    "defaultMessage": "MCP connected, but it did not list any tools."
+  },
+  "extensionModal.testWorking": {
+    "defaultMessage": "MCP is working. {count} tools found."
+  },
+  "extensionModal.testingMcp": {
+    "defaultMessage": "Testing…"
   },
   "extensionModal.unsavedChangesMessage": {
     "defaultMessage": "你对扩展配置有未保存的更改。确定要不保存就关闭吗？"
@@ -2638,9 +2659,6 @@
   },
   "progressiveMessageList.modelChanged": {
     "defaultMessage": "模型已更改：{previousModel} → {currentModel}"
-  },
-  "progressiveMessageList.searchHint": {
-    "defaultMessage": "按 Cmd/Ctrl+F 立即加载全部消息以便搜索"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "所有提示词已重置为默认"

@@ -392,12 +392,9 @@ impl OAuthFlow {
         let redirect_url_parsed = Url::parse(&self.redirect_url)?;
         let requested_port = redirect_url_parsed.port();
 
-        // If no port is specified (or port is explicitly 0), let the OS assign one
-        // Otherwise, use the requested port
-        let env_port: Option<u16> = std::env::var("GOOSE_OAUTH_CALLBACK_PORT")
-            .ok()
-            .and_then(|p| p.parse().ok());
-        let bind_port = requested_port.or(env_port).unwrap_or(0);
+        // A redirect URL with its own port wins. Otherwise use the shared
+        // callback port (fixed by default, overridable, or 0 for an OS port).
+        let bind_port = requested_port.unwrap_or_else(crate::oauth::oauth_callback_bind_port);
         let addr = SocketAddr::from(([127, 0, 0, 1], bind_port));
         let listener = tokio::net::TcpListener::bind(addr).await?;
 

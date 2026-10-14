@@ -29,7 +29,8 @@ import {
   type UserInput,
 } from '../types/message';
 import { useAutoSubmit } from '../hooks/useAutoSubmit';
-import { Goose } from './icons';
+import { findTranscriptMatches, occurrenceWithinMessage } from '../utils/transcriptSearch';
+import { ArrowDown, Goose } from './icons';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
 import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
@@ -55,6 +56,10 @@ const i18n = defineMessages({
   reconnecting: {
     id: 'baseChat.reconnecting',
     defaultMessage: 'Connection lost. Reconnecting…',
+  },
+  scrollToBottom: {
+    id: 'baseChat.scrollToBottom',
+    defaultMessage: 'Scroll to bottom',
   },
 });
 
@@ -82,6 +87,10 @@ export default function BaseChat({
   const location = useLocation();
   const navigate = useNavigate();
   const scrollRef = useRef<ScrollAreaHandle>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [transcriptMatches, setTranscriptMatches] = useState<number[]>([]);
+  const [transcriptMatch, setTranscriptMatch] = useState(0);
+  const [transcriptQuery, setTranscriptQuery] = useState({ term: '', caseSensitive: false });
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const disableAnimation = location.state?.disableAnimation || false;
   const shouldStartLiveVoice = location.state?.startLiveVoice === true;
@@ -163,6 +172,7 @@ export default function BaseChat({
     sessionId,
     onStreamFinish,
   });
+
   const appendToChat = useCallback(
     (text: string) => handleSubmit({ msg: text, images: [] }),
     [handleSubmit]
@@ -296,6 +306,27 @@ export default function BaseChat({
       }, [])
       .reverse();
   }, [messages]);
+
+  const handleTranscriptSearch = useCallback(
+    (term: string, caseSensitive: boolean) => {
+      setTranscriptQuery({ term, caseSensitive });
+      setTranscriptMatches(findTranscriptMatches(messages, term, caseSensitive));
+      setTranscriptMatch(0);
+    },
+    [messages]
+  );
+
+  const handleTranscriptNavigate = useCallback(
+    (direction: 'next' | 'prev') => {
+      setTranscriptMatch((current) => {
+        const count = transcriptMatches.length;
+        if (count === 0) return 0;
+        if (direction === 'next') return (current + 1) % count;
+        return current === 0 ? count - 1 : current - 1;
+      });
+    },
+    [transcriptMatches.length]
+  );
 
   const chatInputSubmit = (input: UserInput) => {
     if (recipe && input.msg.trim()) {
@@ -479,7 +510,10 @@ export default function BaseChat({
           <ScrollArea
             ref={scrollRef}
             className={`flex-1 min-h-0 relative ${contentClassName}`}
-            autoScroll
+            type="always"
+            scrollbarClassName="w-2 p-px transition-none"
+            autoScroll={messages.length <= 50}
+            onScrollChange={setAtBottom}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             data-drop-zone="true"
@@ -503,11 +537,29 @@ export default function BaseChat({
 
             {messages.length > 0 || recipe ? (
               <>
-                <SearchView>
+                <SearchView
+                  highlightMatches={false}
+                  onSearch={handleTranscriptSearch}
+                  onNavigate={handleTranscriptNavigate}
+                  searchResults={{
+                    count: transcriptMatches.length,
+                    currentIndex: transcriptMatches.length === 0 ? 0 : transcriptMatch + 1,
+                  }}
+                >
                   <div ref={conversationRef}>
                     <ProgressiveMessageList
                       messages={messages}
                       sessionId={sessionId}
+                      focusedIndex={
+                        transcriptMatches.length > 0 ? transcriptMatches[transcriptMatch] : null
+                      }
+                      searchTerm={transcriptQuery.term}
+                      searchCaseSensitive={transcriptQuery.caseSensitive}
+                      searchOccurrence={
+                        transcriptMatches.length > 0
+                          ? occurrenceWithinMessage(transcriptMatches, transcriptMatch)
+                          : 0
+                      }
                       toolCallNotifications={toolCallNotifications}
                       append={appendToChat}
                       isUserMessage={isUserMessage}
@@ -528,6 +580,20 @@ export default function BaseChat({
             <div className="absolute bottom-1 left-4 z-20 pointer-events-none">
               <LoadingGoose chatState={chatState} message={progressMessage} />
             </div>
+          )}
+
+          {messages.length > 0 && !atBottom && (
+            <button
+              type="button"
+              aria-label={intl.formatMessage(i18n.scrollToBottom)}
+              className="absolute bottom-3 right-7 z-30 flex size-9 items-center justify-center rounded-full border border-border-primary bg-background-secondary text-text-primary shadow-md hover:bg-background-tertiary"
+              onClick={() => {
+                scrollRef.current?.scrollToBottom();
+                window.dispatchEvent(new CustomEvent(AppEvents.SCROLL_CHAT_TO_BOTTOM));
+              }}
+            >
+              <ArrowDown className="size-5" />
+            </button>
           )}
         </div>
 

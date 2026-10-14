@@ -254,3 +254,82 @@ describe('ProgressiveMessageList batching', () => {
     expect(onRenderingComplete).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ProgressiveMessageList virtualization', () => {
+  const messages = Array.from({ length: 80 }, (_, index) =>
+    message(`assistant-${index}`, 'assistant', [{ type: 'text', text: `Message ${index}` }])
+  );
+
+  function renderVirtualList() {
+    return render(
+      <IntlTestWrapper>
+        <ProgressiveMessageList
+          messages={messages}
+          sessionId="test-session"
+          append={append}
+          isUserMessage={isUserMessage}
+          showLoadingThreshold={50}
+        />
+      </IntlTestWrapper>
+    );
+  }
+
+  it('mounts the latest rows and reserves scroll space for the rest of the transcript', () => {
+    renderVirtualList();
+
+    expect(screen.queryByText('assistant-79')).not.toBeNull();
+    expect(screen.queryByText('assistant-0')).toBeNull();
+    expect(screen.getAllByText(/assistant-/).length).toBeLessThan(40);
+
+    const reserved = Number.parseFloat(
+      screen.getByTestId('virtual-message-list').style.height || '0'
+    );
+    expect(reserved).toBeGreaterThan(1000);
+  });
+
+  it('mounts earlier rows when the transcript is scrolled up', () => {
+    const { container } = render(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <ProgressiveMessageList
+            messages={messages}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+    const viewport = container.querySelector('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLElement)) throw new Error('missing viewport');
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 20000 });
+
+    act(() => {
+      viewport.scrollTop = viewport.scrollHeight;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    act(() => {
+      viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+      viewport.scrollTop = 120;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+
+    expect(screen.queryByText('assistant-0')).not.toBeNull();
+    expect(screen.queryByText('assistant-79')).toBeNull();
+    expect(messages).toHaveLength(80);
+  });
+
+  it('keeps the window virtual when find is pressed', () => {
+    renderVirtualList();
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true }));
+    });
+
+    expect(screen.queryByText('assistant-0')).toBeNull();
+    expect(screen.queryByText('assistant-79')).not.toBeNull();
+    expect(screen.getAllByText(/assistant-/).length).toBeLessThan(40);
+  });
+});
