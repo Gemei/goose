@@ -31,7 +31,7 @@ import LoadingGoose from './LoadingGoose';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
 import { AppEvents } from '../constants/events';
-import { ESTIMATED_MESSAGE_HEIGHT, messageOffset, messageWindow } from './messageWindow';
+import { messageOffset, messageWindow } from './messageWindow';
 import { clearTranscriptHighlights, paintTranscriptHighlights } from '../utils/transcriptHighlight';
 
 const i18n = defineMessages({
@@ -273,7 +273,9 @@ function useVisibleRows({
 }
 
 function messageKeyOf(message: Message, index: number) {
-  return message.id ?? `msg-${index}-${message.created}`;
+  // Provider ids such as chatcmpl-* repeat across turns. The index keeps
+  // each row's React identity unique so a later copy is not dropped.
+  return `${message.id ?? 'msg'}:${index}:${message.created}`;
 }
 
 export default function ProgressiveMessageList(props: ProgressiveMessageListProps) {
@@ -309,8 +311,15 @@ function VirtualMessageList({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [positioned, setPositioned] = useState(false);
+  // While this is set, the mounted window is the tail. Scrolling to the
+  // scrollHeight of a mid-transcript window only reaches the empty bottom
+  // spacer, so the latest rows have to be mounted before that scroll.
+  const [stickToTail, setStickToTail] = useState(true);
   const followRef = useRef(true);
-  const suppressRef = useRef(false);
+  const nearBottomRef = useRef(true);
+  // Scroll position written by scrollViewportTo. The matching scroll event is
+  // the echo of that write, not the user leaving or reaching the tail.
+  const pendingScrollRef = useRef<number | null>(null);
   const searchLockRef = useRef(false);
   const scrollTopRef = useRef(0);
   const measureFlushRef = useRef(false);
@@ -328,24 +337,14 @@ function VirtualMessageList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, measureVersion]);
 
-  const offsets = useMemo(() => {
-    const next = new Array<number>(heights.length);
-    let cursor = 0;
-    for (let index = 0; index < heights.length; index++) {
-      next[index] = cursor;
-      cursor += heights[index] ?? ESTIMATED_MESSAGE_HEIGHT;
-    }
-    return next;
-  }, [heights]);
-
   const windowRange = messageWindow({
     count: messages.length,
     scrollTop,
     viewportHeight,
     heights,
-    // The first paint has no measured viewport, so show the tail. After that
-    // the window is always the real scroll offset. Nothing else writes scrollTop.
-    pinToBottom: !positioned,
+    // Before the first measurement, and whenever the user is at the live edge,
+    // mount the tail. A scroll offset alone cannot see past the bottom spacer.
+    pinToBottom: !positioned || stickToTail,
   });
 
   const viewportOf = () => {
@@ -355,8 +354,8 @@ function VirtualMessageList({
 
   const scrollViewportTo = (viewport: HTMLElement, top: number) => {
     const nextTop = Math.max(0, top);
-    suppressRef.current = true;
     viewport.scrollTop = nextTop;
+    pendingScrollRef.current = viewport.scrollTop;
     scrollTopRef.current = viewport.scrollTop;
     setScrollTop(viewport.scrollTop);
     setViewportHeight(viewport.clientHeight);
@@ -383,47 +382,40 @@ function VirtualMessageList({
       const nextTop = viewport.scrollTop;
       const nextHeight = viewport.clientHeight;
       const distance = viewport.scrollHeight - nextTop - nextHeight;
-      if (suppressRef.current) suppressRef.current = false;
-      else {
+      const movedUp = nextTop < scrollTopRef.current - 1;
+      const nearBottom = distance <= 200;
+      nearBottomRef.current = nearBottom;
+      const echoed =
+        pendingScrollRef.current !== null && Math.abs(nextTop - pendingScrollRef.current) < 2;
+      pendingScrollRef.current = null;
+      if (!echoed) {
         searchLockRef.current = false;
-        if (distance <= 1) followRef.current = true;
-        else markScrolling();
+        // Stay with the live edge until the user actually scrolls up. A wheel
+        // tick that does not move the viewport must not hide the next reply.
+        if (nearBottom) {
+          followRef.current = true;
+          setStickToTail(true);
+        } else {
+          // Any position above the live edge has to leave the tail pin.
+          // Otherwise the window ignores scrollTop and the latest rows stay
+          // mounted while the user is looking further up.
+          setStickToTail(false);
+          if (movedUp) followRef.current = false;
+        }
+        if (distance > 1) markScrolling();
       }
 
-      const previous = messageWindow({
-        count: messages.length,
-        scrollTop: scrollTopRef.current,
-        viewportHeight: nextHeight,
-        heights,
-        pinToBottom: false,
-      });
-      const next = messageWindow({
-        count: messages.length,
-        scrollTop: nextTop,
-        viewportHeight: nextHeight,
-        heights,
-        pinToBottom: false,
-      });
       scrollTopRef.current = nextTop;
-      if (previous.start !== next.start || previous.end !== next.end) setScrollTop(nextTop);
+      // The mounted rows have to track the viewport. Updating only when the
+      // window indexes change left a blank gap and hid a reply that arrived
+      // just below the old offset.
+      setScrollTop((current) => (Math.abs(current - nextTop) < 1 ? current : nextTop));
       setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
     };
-    const leaveBottom = (event: WheelEvent) => {
-      if (event.deltaY < 0) followRef.current = false;
-    };
-    const leaveFromScrollbar = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest('[data-orientation="vertical"]')) {
-        followRef.current = false;
-      }
-    };
-
     const previousAnchor = viewport.style.overflowAnchor;
     viewport.style.overflowAnchor = 'none';
     read();
     viewport.addEventListener('scroll', read, { passive: true });
-    viewport.addEventListener('wheel', leaveBottom, { passive: true });
-    viewport.parentElement?.addEventListener('pointerdown', leaveFromScrollbar);
     const observer =
       typeof ResizeObserver === 'undefined'
         ? null
@@ -434,8 +426,6 @@ function VirtualMessageList({
     return () => {
       viewport.style.overflowAnchor = previousAnchor;
       viewport.removeEventListener('scroll', read);
-      viewport.removeEventListener('wheel', leaveBottom);
-      viewport.parentElement?.removeEventListener('pointerdown', leaveFromScrollbar);
       observer?.disconnect();
       if (scrollIdleRef.current !== null) window.clearTimeout(scrollIdleRef.current);
     };
@@ -451,12 +441,16 @@ function VirtualMessageList({
       return;
     }
 
-    if (searchLockRef.current || !followRef.current) return;
+    if (
+      searchLockRef.current ||
+      (!followRef.current && !nearBottomRef.current && !stickToTail)
+    )
+      return;
     const nextTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
     if (Math.abs(viewport.scrollTop - nextTop) > 1) {
       scrollViewportTo(viewport, nextTop);
     }
-  }, [heights, messages.length, positioned, viewportHeight]);
+  }, [heights, messages.length, positioned, stickToTail, viewportHeight]);
 
   useLayoutEffect(() => {
     if (focusedIndex == null || focusedIndex < 0) {
@@ -468,6 +462,7 @@ function VirtualMessageList({
     if (!viewport) return;
     searchLockRef.current = true;
     followRef.current = false;
+    setStickToTail(false);
     const top = (listRef.current?.offsetTop ?? 0) + messageOffset(heights, focusedIndex);
     scrollViewportTo(viewport, top);
   }, [focusedIndex]);
@@ -515,6 +510,10 @@ function VirtualMessageList({
       if (!viewport) return;
       searchLockRef.current = false;
       followRef.current = true;
+      nearBottomRef.current = true;
+      setStickToTail(true);
+      // If the tail is already mounted, this is the real end. If it is not,
+      // the layout effect scrolls again once the bottom spacer is gone.
       scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
     };
 
@@ -570,28 +569,23 @@ function VirtualMessageList({
     <div
       ref={listRef}
       data-testid="virtual-message-list"
-      style={{ position: 'relative', height: windowRange.totalHeight, overflowAnchor: 'none' }}
+      style={{ overflowAnchor: 'none' }}
     >
+      {windowRange.paddingTop > 0 && (
+        <div data-testid="virtual-spacer-top" style={{ height: windowRange.paddingTop }} />
+      )}
       {messages.slice(windowRange.start, windowRange.end).map((message, offset) => {
         const index = windowRange.start + offset;
         const key = messageKeyOf(message, index);
         return (
-          <div
-            key={key}
-            style={{
-              position: 'absolute',
-              top: offsets[index] ?? 0,
-              left: 0,
-              right: 0,
-              overflowAnchor: 'none',
-            }}
-          >
-            <MeasuredRow messageKey={key} messageIndex={index} onHeight={recordHeight}>
-              {rows[offset]}
-            </MeasuredRow>
-          </div>
+          <MeasuredRow key={key} messageKey={key} messageIndex={index} onHeight={recordHeight}>
+            {rows[offset]}
+          </MeasuredRow>
         );
       })}
+      {windowRange.paddingBottom > 0 && (
+        <div data-testid="virtual-spacer-bottom" style={{ height: windowRange.paddingBottom }} />
+      )}
     </div>
   );
 }

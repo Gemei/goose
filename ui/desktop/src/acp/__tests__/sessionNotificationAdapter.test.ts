@@ -155,6 +155,36 @@ describe('createAcpSessionNotificationAdapter', () => {
         expect(firstContent(messages[1])).toMatchObject({ type: 'text', text: 'Question' });
       });
 
+      it('keeps a reused provider id as a new reply after a later user turn', () => {
+        const adapter = createAcpSessionNotificationAdapter();
+        const first = acpUpdate({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'First reply' },
+          messageId: 'chatcmpl-854',
+        } as SessionNotification['update']);
+        const user = acpUpdate({
+          sessionUpdate: 'user_message_chunk',
+          content: { type: 'text', text: 'please repeat that last reply' },
+          messageId: 'msg-user',
+        } as SessionNotification['update']);
+        const second = acpUpdate({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'First reply' },
+          messageId: 'chatcmpl-854',
+        } as SessionNotification['update']);
+
+        adapter.apply(first);
+        adapter.apply(user);
+        const messages = expectOnlyMessagesChange(adapter.apply(second));
+
+        expect(messages).toHaveLength(3);
+        expect(messages[0].role).toBe('assistant');
+        expect(messages[1].role).toBe('user');
+        expect(messages[2].role).toBe('assistant');
+        expect(firstContent(messages[0])).toMatchObject({ type: 'text', text: 'First reply' });
+        expect(firstContent(messages[2])).toMatchObject({ type: 'text', text: 'First reply' });
+      });
+
       it('appends repeated adjacent text deltas', () => {
         const adapter = createAcpSessionNotificationAdapter();
 
