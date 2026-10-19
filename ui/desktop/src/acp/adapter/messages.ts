@@ -148,6 +148,29 @@ function messageContentFromAcpContentBlock(
   }
 }
 
+/**
+ * Provider completion ids are reused across turns. Only the copy that is still
+ * at the end of the transcript (no later message with a different id) can
+ * take another chunk. An older copy must not swallow the new reply.
+ */
+export function findActiveMessageById(
+  state: AdapterState,
+  role: Message['role'] | undefined,
+  messageId: string
+): Message | undefined {
+  for (let index = state.messages.length - 1; index >= 0; index--) {
+    const message = state.messages[index];
+    if (message.id !== messageId) continue;
+    if (role && message.role !== role) continue;
+    const separated = state.messages
+      .slice(index + 1)
+      .some((later) => later.id !== messageId);
+    if (separated) return undefined;
+    return message;
+  }
+  return undefined;
+}
+
 export function findMessageForChunk(
   state: AdapterState,
   role: Message['role'],
@@ -158,9 +181,7 @@ export function findMessageForChunk(
     return lastMergeableMessageWithRole(state, role);
   }
 
-  const existing = state.messages.find(
-    (message) => message.id === messageId && message.role === role
-  );
+  const existing = findActiveMessageById(state, role, messageId);
   if (existing) {
     return existing;
   }

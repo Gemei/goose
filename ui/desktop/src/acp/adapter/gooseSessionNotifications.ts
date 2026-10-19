@@ -71,7 +71,7 @@ function applyMessageUsage(
   // id miss falls back to the most recent assistant message with provider
   // content - skipping client-made rows (approval cards, status notices).
   const byId = update.messageId
-    ? state.messages.find((message) => message.id === update.messageId)
+    ? [...state.messages].reverse().find((message) => message.id === update.messageId)
     : undefined;
   const target =
     byId ??

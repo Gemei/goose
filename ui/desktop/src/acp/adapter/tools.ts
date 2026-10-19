@@ -5,7 +5,7 @@ import type {
 } from '@agentclientprotocol/sdk';
 import type { Message } from '../../types/message';
 import type { ContentBlock as GooseContentBlock } from '../../types/message';
-import { findMessageForChunk } from './messages';
+import { findActiveMessageById, findMessageForChunk } from './messages';
 import { toolNotificationChange } from './toolNotifications';
 import {
   type AcpChatStateChange,
@@ -145,9 +145,7 @@ function getOrCreateToolResponseMessageForUpdate(
   gooseMeta: GooseMessageMeta
 ): Message {
   if (gooseMeta.messageId) {
-    const existing = state.messages.find(
-      (message) => message.id === gooseMeta.messageId && message.role === 'user'
-    );
+    const existing = findActiveMessageById(state, 'user', gooseMeta.messageId);
     if (existing) {
       return existing;
     }

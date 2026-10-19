@@ -281,9 +281,10 @@ describe('ProgressiveMessageList virtualization', () => {
     expect(screen.queryByText('assistant-0')).toBeNull();
     expect(screen.getAllByText(/assistant-/).length).toBeLessThan(40);
 
-    const reserved = Number.parseFloat(
-      screen.getByTestId('virtual-message-list').style.height || '0'
-    );
+    const top = screen.queryByTestId('virtual-spacer-top');
+    const bottom = screen.queryByTestId('virtual-spacer-bottom');
+    const reserved =
+      Number.parseFloat(top?.style.height || '0') + Number.parseFloat(bottom?.style.height || '0');
     expect(reserved).toBeGreaterThan(1000);
   });
 
@@ -319,6 +320,97 @@ describe('ProgressiveMessageList virtualization', () => {
     expect(screen.queryByText('assistant-0')).not.toBeNull();
     expect(screen.queryByText('assistant-79')).toBeNull();
     expect(messages).toHaveLength(80);
+  });
+
+  it('keeps a new reply visible when a wheel tick does not leave the bottom', () => {
+    const { container, rerender } = render(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <ProgressiveMessageList
+            messages={messages}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+    const viewport = container.querySelector('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLElement)) throw new Error('missing viewport');
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 400 });
+    let scrollHeight = 12800;
+    Object.defineProperty(viewport, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+
+    act(() => {
+      viewport.scrollTop = scrollHeight - viewport.clientHeight;
+      viewport.dispatchEvent(new Event('scroll'));
+      viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -40 }));
+    });
+    const bottomBeforeReply = viewport.scrollTop;
+
+    scrollHeight = 12960;
+    const next = [
+      ...messages,
+      message('assistant-80', 'assistant', [{ type: 'text', text: 'Message 80' }]),
+    ];
+    rerender(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <ProgressiveMessageList
+            messages={next}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+
+    expect(screen.queryByText('assistant-80')).not.toBeNull();
+    expect(viewport.scrollTop).toBeGreaterThan(bottomBeforeReply);
+  });
+
+  it('mounts the tail when asked to scroll to the end', () => {
+    const { container } = render(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <ProgressiveMessageList
+            messages={messages}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+    const viewport = container.querySelector('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLElement)) throw new Error('missing viewport');
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 20000 });
+
+    act(() => {
+      viewport.scrollTop = viewport.scrollHeight;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    act(() => {
+      viewport.scrollTop = 120;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    expect(screen.queryByText('assistant-79')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('scroll-chat-to-bottom'));
+    });
+
+    expect(screen.queryByText('assistant-79')).not.toBeNull();
+    expect(screen.queryByText('assistant-0')).toBeNull();
+    expect(viewport.scrollTop).toBe(viewport.scrollHeight - viewport.clientHeight);
   });
 
   it('keeps the window virtual when find is pressed', () => {
