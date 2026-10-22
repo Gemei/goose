@@ -2654,11 +2654,20 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Что мы собираем:"
   },
+  "messageList.hiddenMessages": {
+    "defaultMessage": "{count, plural, one {# сообщение скрыто} few {# сообщения скрыты} many {# сообщений скрыто} other {# сообщений скрыто}}"
+  },
+  "messageList.modelChanged": {
+    "defaultMessage": "Модель изменена: {previousModel} → {currentModel}"
+  },
+  "messageList.requestedModel": {
+    "defaultMessage": "{model} (запрошенная)"
+  },
+  "messageList.showAllMessages": {
+    "defaultMessage": "Показать все"
+  },
   "progressiveMessageList.loadingMessages": {
     "defaultMessage": "Загрузка сообщений... ({renderedCount}/{totalCount})"
-  },
-  "progressiveMessageList.modelChanged": {
-    "defaultMessage": "Модель изменена: {previousModel} → {currentModel}"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Все промпты сброшены к значениям по умолчанию"
@@ -4295,6 +4304,12 @@
   "subRecipeModal.subtitle": {
     "defaultMessage": "Настройте подрецепт, который можно вызывать как инструмент при выполнении рецепта"
   },
+  "subagentSessionNotice.loadLatestProgress": {
+    "defaultMessage": "Загрузить последний прогресс"
+  },
+  "subagentSessionNotice.notice": {
+    "defaultMessage": "Прогресс субагента здесь не отображается в реальном времени."
+  },
   "switchModelModal.backToModelList": {
     "defaultMessage": "Назад к списку моделей"
   },
@@ -4690,6 +4705,27 @@
   },
   "settings.agentLoop.operations.auto.placeholder": {
     "defaultMessage": "Автоматически"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.configured": {
+    "defaultMessage": "Настроено"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.label": {
+    "defaultMessage": "API-ключ TypeSafe"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.placeholder": {
+    "defaultMessage": "Введите API-ключ"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.remove": {
+    "defaultMessage": "Удалить ключ"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.save": {
+    "defaultMessage": "Сохранить ключ"
+  },
+  "settings.agentLoop.operations.autoEffort.description": {
+    "defaultMessage": "Использует Jev для выбора уровня рассуждений для каждого запроса. Текст отправляется в TypeSafe AI; слеш-команды навыков и рецептов включают их развёрнутые локальные инструкции."
+  },
+  "settings.agentLoop.operations.autoEffort.title": {
+    "defaultMessage": "Автоматический уровень рассуждений"
   },
   "settings.agentLoop.operations.blockLimit.label": {
     "defaultMessage": "Лимит блокировок"

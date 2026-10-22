@@ -31,7 +31,15 @@ async fn proactive_and_manual_compaction_continue_with_replaced_usage() -> Resul
     pipeline.run([half_full.as_str()]).await?;
     let budget = pipeline.run(["check the budget"]).await?;
     budget.assert_message(-1, Agent, "budget checked");
-    assert!(api.calls().last().unwrap().input_contains("<compaction>"));
+    assert!(!api.calls().last().unwrap().input_contains("<compaction>"));
+
+    pipeline
+        .set_total_tokens((pipeline.context_limit() as f64 * 0.79) as i32)
+        .await;
+    let near_threshold = pipeline.run(["check the budget"]).await?;
+    near_threshold.assert_message(-1, Agent, "budget checked");
+    assert_eq!(near_threshold.history_replacements(), 0);
+    assert!(!api.calls().last().unwrap().input_contains("<compaction>"));
 
     let filled_usage = (pipeline.context_limit() as f64 * 0.81) as i32;
     pipeline.set_total_tokens(filled_usage).await;
@@ -282,6 +290,47 @@ async fn context_errors_compact_and_retry() -> Result<()> {
     let recovered = pipeline.run(["try again"]).await?;
     recovered.assert_message(-1, Agent, "recovered on the next turn");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_compaction_reports_the_provider_error_kind() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    api.on("overflow").context_limit_error("too long");
+    api.on(SUMMARIZE_HISTORY).http_error(401);
+
+    let failed = pipeline.run(["overflow"]).await?;
+
+    assert_eq!(failed.history_replacements(), 0);
+    assert_eq!(api.call_count(), 2);
+    assert_eq!(
+        failed.emitted_error_kinds(),
+        [
+            MessageErrorKind::ContextLengthExceeded,
+            MessageErrorKind::Authentication
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_compaction_without_a_provider_error_reports_other() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    api.on("overflow").context_limit_error("too long");
+    api.on(SUMMARIZE_HISTORY)
+        .context_limit_error("still too long");
+
+    let failed = pipeline.run(["overflow"]).await?;
+
+    assert_eq!(failed.history_replacements(), 0);
+    assert_eq!(api.call_count(), 2);
+    assert_eq!(
+        failed.emitted_error_kinds(),
+        [
+            MessageErrorKind::ContextLengthExceeded,
+            MessageErrorKind::Other
+        ]
+    );
     Ok(())
 }
 

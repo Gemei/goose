@@ -2654,11 +2654,20 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Cosa raccogliamo:"
   },
+  "messageList.hiddenMessages": {
+    "defaultMessage": "{count, plural, one {# messaggio nascosto} other {# messaggi nascosti}}"
+  },
+  "messageList.modelChanged": {
+    "defaultMessage": "Modello cambiato: {previousModel} → {currentModel}"
+  },
+  "messageList.requestedModel": {
+    "defaultMessage": "{model} (richiesto)"
+  },
+  "messageList.showAllMessages": {
+    "defaultMessage": "Mostra tutto"
+  },
   "progressiveMessageList.loadingMessages": {
     "defaultMessage": "Caricamento messaggi... ({renderedCount}/{totalCount})"
-  },
-  "progressiveMessageList.modelChanged": {
-    "defaultMessage": "Modello cambiato: {previousModel} → {currentModel}"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Tutti i prompt ripristinati ai valori predefiniti"
@@ -4295,6 +4304,12 @@
   "subRecipeModal.subtitle": {
     "defaultMessage": "Configura una sottoricetta che può essere richiamata come strumento durante l'esecuzione della ricetta"
   },
+  "subagentSessionNotice.loadLatestProgress": {
+    "defaultMessage": "Carica gli ultimi progressi"
+  },
+  "subagentSessionNotice.notice": {
+    "defaultMessage": "I progressi del subagente non vengono mostrati in tempo reale qui."
+  },
   "switchModelModal.backToModelList": {
     "defaultMessage": "Torna all'elenco dei modelli"
   },
@@ -4690,6 +4705,27 @@
   },
   "settings.agentLoop.operations.auto.placeholder": {
     "defaultMessage": "Automatico"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.configured": {
+    "defaultMessage": "Configurata"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.label": {
+    "defaultMessage": "Chiave API TypeSafe"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.placeholder": {
+    "defaultMessage": "Inserisci la chiave API"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.remove": {
+    "defaultMessage": "Rimuovi chiave"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.save": {
+    "defaultMessage": "Salva chiave"
+  },
+  "settings.agentLoop.operations.autoEffort.description": {
+    "defaultMessage": "Usa Jev per scegliere il livello di ragionamento per ogni richiesta. Il testo viene inviato a TypeSafe AI; i comandi slash di skill e ricette includono le relative istruzioni locali espanse."
+  },
+  "settings.agentLoop.operations.autoEffort.title": {
+    "defaultMessage": "Livello di ragionamento automatico"
   },
   "settings.agentLoop.operations.blockLimit.label": {
     "defaultMessage": "Limite di blocco"

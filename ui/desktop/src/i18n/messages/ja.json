@@ -2654,11 +2654,20 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "収集する内容:"
   },
+  "messageList.hiddenMessages": {
+    "defaultMessage": "{count, plural, other {# 件のメッセージを非表示}}"
+  },
+  "messageList.modelChanged": {
+    "defaultMessage": "モデルを変更しました: {previousModel} → {currentModel}"
+  },
+  "messageList.requestedModel": {
+    "defaultMessage": "{model}（リクエスト済み）"
+  },
+  "messageList.showAllMessages": {
+    "defaultMessage": "すべて表示"
+  },
   "progressiveMessageList.loadingMessages": {
     "defaultMessage": "メッセージを読み込み中...（{renderedCount}/{totalCount}）"
-  },
-  "progressiveMessageList.modelChanged": {
-    "defaultMessage": "モデルを変更しました: {previousModel} → {currentModel}"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "すべてのプロンプトをデフォルトにリセットしました"
@@ -4295,6 +4304,12 @@
   "subRecipeModal.subtitle": {
     "defaultMessage": "レシピ実行中にツールとして呼び出せるサブレシピを設定します"
   },
+  "subagentSessionNotice.loadLatestProgress": {
+    "defaultMessage": "最新の進捗を読み込む"
+  },
+  "subagentSessionNotice.notice": {
+    "defaultMessage": "サブエージェントの進捗はここではリアルタイムに表示されません。"
+  },
   "switchModelModal.backToModelList": {
     "defaultMessage": "モデル一覧に戻る"
   },
@@ -4690,6 +4705,27 @@
   },
   "settings.agentLoop.operations.auto.placeholder": {
     "defaultMessage": "自動"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.configured": {
+    "defaultMessage": "設定済み"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.label": {
+    "defaultMessage": "TypeSafe APIキー"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.placeholder": {
+    "defaultMessage": "APIキーを入力"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.remove": {
+    "defaultMessage": "キーを削除"
+  },
+  "settings.agentLoop.operations.autoEffort.apiKey.save": {
+    "defaultMessage": "キーを保存"
+  },
+  "settings.agentLoop.operations.autoEffort.description": {
+    "defaultMessage": "Jevを使用してリクエストごとの思考レベルを選択します。リクエストのテキストはTypeSafe AIに送信され、スキルやレシピのスラッシュコマンドには展開されたローカル指示が含まれます。"
+  },
+  "settings.agentLoop.operations.autoEffort.title": {
+    "defaultMessage": "思考レベルの自動選択"
   },
   "settings.agentLoop.operations.blockLimit.label": {
     "defaultMessage": "ブロック上限"

@@ -29,7 +29,13 @@ import type {
 } from '../types/message';
 import LoadingGoose from './LoadingGoose';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
-import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
+import {
+  deriveMessageRowContexts,
+  inferenceModel,
+  isModelChange,
+  type InferenceModel,
+  type MessageRowContext,
+} from './messageRowContext';
 import { AppEvents } from '../constants/events';
 import { messageOffset, messageWindow } from './messageWindow';
 import { clearTranscriptHighlights, paintTranscriptHighlights } from '../utils/transcriptHighlight';
@@ -40,18 +46,17 @@ const i18n = defineMessages({
     defaultMessage: 'Loading messages... ({renderedCount}/{totalCount})',
   },
   modelChanged: {
-    id: 'progressiveMessageList.modelChanged',
+    id: 'messageList.modelChanged',
     defaultMessage: 'Model changed: {previousModel} → {currentModel}',
+  },
+  requestedModel: {
+    id: 'messageList.requestedModel',
+    defaultMessage: '{model} (requested)',
   },
 });
 
 const emptyToolCallNotifications = new Map<string, NotificationEvent[]>();
 const emptyAppend = () => {};
-
-function getResolvedModel(message: Message): string | null {
-  if (message.role !== 'assistant' || !message.metadata.userVisible) return null;
-  return message.metadata.inference?.resolvedModel ?? null;
-}
 
 function getSystemNotification(message: Message): SystemNotificationContent | undefined {
   return getCreditsExhaustedNotification(message) ?? getInlineSystemNotification(message);
@@ -158,7 +163,7 @@ function MessageRowComponent({
 
 const MessageRow = memo(MessageRowComponent, isEqual);
 
-interface ProgressiveMessageListProps {
+interface MessageListProps {
   messages: Message[];
   sessionId: string;
   toolCallNotifications?: Map<string, NotificationEvent[]>;
@@ -200,10 +205,10 @@ interface SharedRowProps {
   isStreamingMessage: boolean;
   isUserMessage: (message: Message) => boolean;
   messages: Message[];
-  onMessageUpdate?: ProgressiveMessageListProps['onMessageUpdate'];
-  renderMessage?: ProgressiveMessageListProps['renderMessage'];
+  onMessageUpdate?: MessageListProps['onMessageUpdate'];
+  renderMessage?: MessageListProps['renderMessage'];
   sessionId: string;
-  submitElicitationResponse?: ProgressiveMessageListProps['submitElicitationResponse'];
+  submitElicitationResponse?: MessageListProps['submitElicitationResponse'];
   toolCallNotifications: Map<string, NotificationEvent[]>;
 }
 
@@ -234,14 +239,17 @@ function useVisibleRows({
       ? `notification-${messageIdentifier}`
       : messageIdentifier;
     const rowContext = rowContexts[index];
-    const currentResolvedModel = getResolvedModel(message);
+    const currentModel = inferenceModel(message);
+    const previousModel = rowContext.previousModel;
+    const modelLabel = (model: InferenceModel) =>
+      model.confirmed
+        ? getModelDisplayName(model.id)
+        : intl.formatMessage(i18n.requestedModel, { model: getModelDisplayName(model.id) });
     const modelChangeMessage =
-      currentResolvedModel &&
-      rowContext.previousResolvedModel &&
-      currentResolvedModel !== rowContext.previousResolvedModel
+      currentModel && previousModel && isModelChange(previousModel, currentModel)
         ? intl.formatMessage(i18n.modelChanged, {
-            previousModel: getModelDisplayName(rowContext.previousResolvedModel),
-            currentModel: getModelDisplayName(currentResolvedModel),
+            previousModel: modelLabel(previousModel),
+            currentModel: modelLabel(currentModel),
           })
         : null;
     const toolNotifications = rowContext.toolStates.map((toolState) =>
@@ -278,7 +286,7 @@ function messageKeyOf(message: Message, index: number) {
   return `${message.id ?? 'msg'}:${index}:${message.created}`;
 }
 
-export default function ProgressiveMessageList(props: ProgressiveMessageListProps) {
+export default function MessageList(props: MessageListProps) {
   const { messages, showLoadingThreshold = 50 } = props;
   const virtualize = showLoadingThreshold > 0 && messages.length > showLoadingThreshold;
 
@@ -304,7 +312,7 @@ function VirtualMessageList({
   searchTerm = '',
   searchCaseSensitive = false,
   searchOccurrence = 0,
-}: ProgressiveMessageListProps) {
+}: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const heightsRef = useRef(new Map<string, number>());
   const [measureVersion, setMeasureVersion] = useState(0);
@@ -647,7 +655,7 @@ function BatchedMessageList({
   searchTerm = '',
   searchCaseSensitive = false,
   searchOccurrence = 0,
-}: ProgressiveMessageListProps) {
+}: MessageListProps) {
   const intl = useIntl();
   const [renderedCount, setRenderedCount] = useState(() =>
     initialRevealedCount(messages.length, showLoadingThreshold, batchSize)
