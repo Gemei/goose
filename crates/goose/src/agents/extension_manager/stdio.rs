@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use rmcp::model::ProtocolVersion;
 use rmcp::transport::ConfigureCommandExt;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -20,21 +21,45 @@ pub(super) async fn connect(
 ) -> ExtensionResult<McpClient> {
     extension_malware_check::deny_if_malicious_cmd_args(cmd, args).await?;
 
-    let command = match container {
-        Some(container) => {
-            ctx.docker_container = Some(container.id().to_string());
-            tracing::info!(
-                container = %container.id(),
-                cmd = %cmd,
-                "Starting stdio extension inside Docker container"
-            );
-            docker_exec(container, envs, cmd, args)
-        }
+    if let Some(container) = container {
+        ctx.docker_container = Some(container.id().to_string());
+        tracing::info!(
+            container = %container.id(),
+            cmd = %cmd,
+            "Starting stdio extension inside Docker container"
+        );
+    }
+    let make_command = || match container {
+        Some(container) => docker_exec(container, envs.clone(), cmd, args),
         None => Command::new(resolve_command(cmd)).configure(|command| {
-            command.args(args).envs(envs);
+            command.args(args).envs(envs.clone());
         }),
     };
-    spawn(command, ctx).await
+    // `server/discover` can close a legacy stdio server before the old
+    // initialize handshake runs. HTTP retries that case; stdio needs a new
+    // process because the first one has already exited.
+    let retry_legacy = ctx.capabilities.protocol_version.is_none();
+    let first = spawn(make_command(), ctx.clone()).await;
+    let Err(error) = first else {
+        return first;
+    };
+    if !retry_legacy || !handshake_failed(&error) {
+        return Err(error);
+    }
+    tracing::warn!(
+        %error,
+        "stdio MCP discover handshake failed; retrying with legacy initialize"
+    );
+    let mut legacy = ctx;
+    legacy.capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+    spawn(make_command(), legacy).await
+}
+
+fn handshake_failed(error: &ExtensionError) -> bool {
+    matches!(
+        error,
+        ExtensionError::ProcessExit(_) | ExtensionError::InitializeError(_)
+    )
 }
 
 pub(super) fn docker_exec(
@@ -97,5 +122,28 @@ pub(super) async fn spawn(mut command: Command, ctx: ConnectContext) -> Extensio
             Ok(stderr_content) => ProcessExit::new(stderr_content, error).into(),
             Err(e) => e.into(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::service::ClientInitializeError;
+
+    #[test]
+    fn discover_handshake_failures_are_retried() {
+        let closed = ExtensionError::from(ClientInitializeError::ConnectionClosed(
+            "discover response".into(),
+        ));
+        assert!(handshake_failed(&closed));
+
+        let exit = ExtensionError::from(ProcessExit::new(
+            "client disconnected",
+            Box::new(ClientInitializeError::Cancelled),
+        ));
+        assert!(handshake_failed(&exit));
+        assert!(!handshake_failed(&ExtensionError::SetupError(
+            "failed to attach child process stderr".into()
+        )));
     }
 }
