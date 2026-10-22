@@ -413,7 +413,7 @@ fn extract_zip(data: &[u8], dest: &Path) -> Result<()> {
 
         let safe_path = match entry.enclosed_name() {
             Some(p) => p.to_owned(),
-            None => bail!("Zip entry has unsafe path: {}", entry.name()?),
+            None => bail!("Zip entry has unsafe path: {:?}", entry.name()),
         };
 
         let target = dest.join(&safe_path);
@@ -433,6 +433,7 @@ fn extract_zip(data: &[u8], dest: &Path) -> Result<()> {
 }
 
 /// Validate that an archive entry path is safe (no absolute paths, no `..`).
+#[cfg(any(not(target_os = "windows"), test))]
 fn validate_entry_path(path: &Path) -> Result<()> {
     if path.is_absolute() {
         bail!("Tar entry has absolute path: {}", path.display());
