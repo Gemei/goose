@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, other {# mesaj gizlendi}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Sohbet yükleniyor"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Model değişti: {previousModel} → {currentModel}"
   },

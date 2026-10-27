@@ -1,7 +1,7 @@
 import {
   Fragment,
   memo,
-  useCallback,
+  startTransition,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -21,38 +21,15 @@ import {
   CreditsExhaustedNotification,
   getCreditsExhaustedNotification,
 } from './context_management/CreditsExhaustedNotification';
-import type {
-  ImageData,
-  Message,
-  NotificationEvent,
-  SystemNotificationContent,
+import {
+  type ImageData,
+  type Message,
+  type NotificationEvent,
+  type SystemNotificationContent,
 } from '../types/message';
-import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
-import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
-import { AppEvents } from '../constants/events';
-import { messageOffset, messageWindow } from './messageWindow';
-import { clearTranscriptHighlights, paintTranscriptHighlights } from '../utils/transcriptHighlight';
-
-const i18n = defineMessages({
-  loadingMessages: {
-    id: 'progressiveMessageList.loadingMessages',
-    defaultMessage: 'Loading messages... ({renderedCount}/{totalCount})',
-  },
-  modelChanged: {
-    id: 'messageList.modelChanged',
-    defaultMessage: 'Model changed: {previousModel} → {currentModel}',
-  },
-  requestedModel: {
-    id: 'messageList.requestedModel',
-    defaultMessage: '{model} (requested)',
-  },
-  hiddenMessages: {
-    id: 'messageList.hiddenMessages',
-    defaultMessage: '{count, plural, one {# message hidden} other {# messages hidden}}',
-  },
-  showAllMessages: {
-    id: 'messageList.showAllMessages',
-    defaultMessage: 'Show all',
+  loadingHistory: {
+    id: 'messageList.loadingHistory',
+    defaultMessage: 'Chat is loading',
   },
 });
 
@@ -120,6 +97,7 @@ function MessageRowComponent({
         className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} assistant`}
         data-testid="message-container"
         data-message-index={index}
+        style={{ contain: 'layout' }}
       >
         {renderSystemNotification(notification)}
       </div>
@@ -142,6 +120,7 @@ function MessageRowComponent({
         className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} ${isUser ? 'user' : 'assistant'} ${rowContext.isInToolCallChain ? 'in-chain' : ''}`}
         data-testid="message-container"
         data-message-index={index}
+        style={{ contain: 'layout' }}
       >
         {isUser ? (
           !hasOnlyToolResponses && (
@@ -238,10 +217,6 @@ function useVisibleRows({
     if (renderMessage) return renderMessage(message, index);
 
     const isUser = isUserMessage(message);
-    const messageIdentifier = message.id ?? `msg-${index}-${message.created}`;
-    const messageKey = getSystemNotification(message)
-      ? `notification-${messageIdentifier}`
-      : messageIdentifier;
     const rowContext = rowContexts[index];
     const currentResolvedModel = getResolvedModel(message);
     const modelChangeMessage =
@@ -259,7 +234,7 @@ function useVisibleRows({
 
     return (
       <MessageRow
-        key={messageKey}
+        key={messageKeyOf(message, index)}
         append={append}
         index={index}
         isStreaming={
@@ -287,7 +262,13 @@ function messageKeyOf(message: Message, index: number) {
   return `${message.id ?? 'msg'}:${index}:${message.created}`;
 }
 
-export default function ProgressiveMessageList(props: ProgressiveMessageListProps) {
+function initialHistoryStart(length: number) {
+  if (length <= 0) return 0;
+  if (prefersInstantScroll()) return 0;
+  return Math.max(0, length - HISTORY_TAIL);
+}
+
+export default function MessageList(props: MessageListProps) {
   const { messages, showLoadingThreshold = 50 } = props;
   const virtualize = showLoadingThreshold > 0 && messages.length > showLoadingThreshold;
 
@@ -313,153 +294,183 @@ function VirtualMessageList({
   searchTerm = '',
   searchCaseSensitive = false,
   searchOccurrence = 0,
-}: ProgressiveMessageListProps) {
+}: MessageListProps) {
+  const intl = useIntl();
   const listRef = useRef<HTMLDivElement>(null);
-  const heightsRef = useRef(new Map<string, number>());
-  const [measureVersion, setMeasureVersion] = useState(0);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [positioned, setPositioned] = useState(false);
-  // While this is set, the mounted window is the tail. Scrolling to the
-  // scrollHeight of a mid-transcript window only reaches the empty bottom
-  // spacer, so the latest rows have to be mounted before that scroll.
-  const [stickToTail, setStickToTail] = useState(true);
+  const initialStart = initialHistoryStart(messages.length);
+  const [historyStart, setHistoryStart] = useState(initialStart);
+  const [historySettled, setHistorySettled] = useState(initialStart === 0);
   const followRef = useRef(true);
-  const nearBottomRef = useRef(true);
-  // Scroll position written by scrollViewportTo. The matching scroll event is
-  // the echo of that write, not the user leaving or reaching the tail.
+  const positionedRef = useRef(false);
   const pendingScrollRef = useRef<number | null>(null);
+  const smoothingRef = useRef(false);
+  const cancelSmoothRef = useRef<(() => void) | null>(null);
   const searchLockRef = useRef(false);
   const scrollTopRef = useRef(0);
-  const measureFlushRef = useRef(false);
-  const scrollingRef = useRef(false);
-  const pendingMeasureRef = useRef(false);
-  const scrollIdleRef = useRef<number | null>(null);
+  const loadingHistoryRef = useRef(false);
   const completedSessionRef = useRef<string | null>(null);
+  const sessionRef = useRef(sessionId);
+  const messagesLengthRef = useRef(messages.length);
+  messagesLengthRef.current = messages.length;
 
-  const heights = useMemo(() => {
-    return messages.map((message, index) => {
-      if (!message.metadata.userVisible) return 0;
-      return heightsRef.current.get(messageKeyOf(message, index));
-    });
-    // measureVersion retargets the memo after a row reports a real height.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, measureVersion]);
+  const loadingHistory = historyStart > 0 || !historySettled;
+  loadingHistoryRef.current = loadingHistory;
 
-  const windowRange = messageWindow({
-    count: messages.length,
-    scrollTop,
-    viewportHeight,
-    heights,
-    // Before the first measurement, and whenever the user is at the live edge,
-    // mount the tail. A scroll offset alone cannot see past the bottom spacer.
-    pinToBottom: !positioned || stickToTail,
-  });
+  useEffect(() => {
+    if (sessionRef.current === sessionId) return;
+    sessionRef.current = sessionId;
+    const start = initialHistoryStart(messagesLengthRef.current);
+    setHistoryStart(start);
+    setHistorySettled(start === 0);
+    followRef.current = true;
+    positionedRef.current = false;
+    completedSessionRef.current = null;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (historyStart <= 0) return;
+    const timeout = window.setTimeout(() => {
+      startTransition(() => {
+        setHistoryStart((start) => Math.max(0, start - HISTORY_BATCH));
+      });
+    }, HISTORY_BATCH_MS);
+    return () => window.clearTimeout(timeout);
+  }, [historyStart]);
+
+  useEffect(() => {
+    if (historyStart > 0) {
+      setHistorySettled(false);
+      return;
+    }
+    const list = listRef.current;
+    if (!list || prefersInstantScroll()) {
+      setHistorySettled(true);
+      return;
+    }
+    let lastHeight = list.offsetHeight;
+    let stableFrames = 0;
+    let frames = 0;
+    let raf = 0;
+    const tick = () => {
+      frames += 1;
+      const nextHeight = list.offsetHeight;
+      if (nextHeight === lastHeight) stableFrames += 1;
+      else {
+        stableFrames = 0;
+        lastHeight = nextHeight;
+      }
+      if (stableFrames >= 4 || frames >= 45) {
+        setHistorySettled(true);
+        return;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [historyStart]);
+
+  useEffect(() => {
+    if (focusedIndex == null || focusedIndex < 0) return;
+    setHistoryStart((start) => Math.min(start, focusedIndex));
+  }, [focusedIndex]);
 
   const viewportOf = () => {
     const viewport = listRef.current?.closest('[data-radix-scroll-area-viewport]');
     return viewport instanceof HTMLElement ? viewport : null;
   };
 
-  const scrollViewportTo = (viewport: HTMLElement, top: number) => {
+  const scrollViewportTo = (viewport: HTMLElement, top: number, smooth = false) => {
     const nextTop = Math.max(0, top);
-    viewport.scrollTop = nextTop;
-    pendingScrollRef.current = viewport.scrollTop;
+    cancelWheelSmoothing(viewport);
+    cancelSmoothRef.current?.();
+    cancelSmoothRef.current = null;
+    if (smooth) {
+      smoothingRef.current = true;
+      cancelSmoothRef.current = smoothScrollTo(viewport, nextTop);
+    } else {
+      smoothingRef.current = false;
+      viewport.scrollTop = nextTop;
+    }
+    pendingScrollRef.current = nextTop;
     scrollTopRef.current = viewport.scrollTop;
-    setScrollTop(viewport.scrollTop);
-    setViewportHeight(viewport.clientHeight);
   };
 
   useEffect(() => {
     const viewport = viewportOf();
     if (!viewport) return;
 
-    // Keep the thumb glued to the gesture. Measured row heights are applied
-    // after the drag, and they do not move scrollTop.
-    const markScrolling = () => {
-      scrollingRef.current = true;
-      if (scrollIdleRef.current !== null) window.clearTimeout(scrollIdleRef.current);
-      scrollIdleRef.current = window.setTimeout(() => {
-        scrollingRef.current = false;
-        scrollIdleRef.current = null;
-        if (!pendingMeasureRef.current) return;
-        pendingMeasureRef.current = false;
-        setMeasureVersion((version) => version + 1);
-      }, 120);
+    const pinToEnd = () => {
+      cancelWheelSmoothing(viewport);
+      const end = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      viewport.scrollTop = end;
+      pendingScrollRef.current = end;
+      scrollTopRef.current = viewport.scrollTop;
     };
+
     const read = () => {
+      if (loadingHistoryRef.current) {
+        pinToEnd();
+        return;
+      }
+
       const nextTop = viewport.scrollTop;
-      const nextHeight = viewport.clientHeight;
-      const distance = viewport.scrollHeight - nextTop - nextHeight;
+      const distance = viewport.scrollHeight - nextTop - viewport.clientHeight;
       const movedUp = nextTop < scrollTopRef.current - 1;
-      const nearBottom = distance <= 200;
-      nearBottomRef.current = nearBottom;
+      const atLiveEdge = distance <= FOLLOW_RESUME_PX;
       const echoed =
         pendingScrollRef.current !== null && Math.abs(nextTop - pendingScrollRef.current) < 2;
       pendingScrollRef.current = null;
-      if (!echoed) {
-        searchLockRef.current = false;
-        // Stay with the live edge until the user actually scrolls up. A wheel
-        // tick that does not move the viewport must not hide the next reply.
-        if (nearBottom) {
-          followRef.current = true;
-          setStickToTail(true);
-        } else {
-          // Any position above the live edge has to leave the tail pin.
-          // Otherwise the window ignores scrollTop and the latest rows stay
-          // mounted while the user is looking further up.
-          setStickToTail(false);
-          if (movedUp) followRef.current = false;
-        }
-        if (distance > 1) markScrolling();
-      }
 
+      if (smoothingRef.current) {
+        if (atLiveEdge || echoed) {
+          smoothingRef.current = false;
+          followRef.current = true;
+        }
+      } else if (!echoed) {
+        searchLockRef.current = false;
+        if (movedUp && !atLiveEdge) {
+          followRef.current = false;
+        } else if (atLiveEdge) {
+          followRef.current = true;
+        }
+      }
       scrollTopRef.current = nextTop;
-      // The mounted rows have to track the viewport. Updating only when the
-      // window indexes change left a blank gap and hid a reply that arrived
-      // just below the old offset.
-      setScrollTop((current) => (Math.abs(current - nextTop) < 1 ? current : nextTop));
-      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
     };
-    const previousAnchor = viewport.style.overflowAnchor;
-    viewport.style.overflowAnchor = 'none';
+
+    const blockWhileLoading = (event: WheelEvent) => {
+      if (!loadingHistoryRef.current) return;
+      event.preventDefault();
+      pinToEnd();
+    };
+
     read();
-    viewport.addEventListener('scroll', read, { passive: true });
-    const observer =
-      typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(() => {
-            setViewportHeight(viewport.clientHeight);
-          });
-    observer?.observe(viewport);
-    return () => {
-      viewport.style.overflowAnchor = previousAnchor;
-      viewport.removeEventListener('scroll', read);
-      observer?.disconnect();
-      if (scrollIdleRef.current !== null) window.clearTimeout(scrollIdleRef.current);
+    const cancelSmooth = () => {
+      if (!smoothingRef.current) return;
+      cancelSmoothRef.current?.();
+      cancelSmoothRef.current = null;
+      smoothingRef.current = false;
     };
-  }, [heights, messages.length, sessionId]);
+    viewport.addEventListener('scroll', read, { passive: true });
+    viewport.addEventListener('wheel', blockWhileLoading, { passive: false });
+    viewport.addEventListener('wheel', cancelSmooth, { passive: true });
+    viewport.addEventListener('pointerdown', cancelSmooth);
+    return () => {
+      viewport.removeEventListener('scroll', read);
+      viewport.removeEventListener('wheel', blockWhileLoading);
+      viewport.removeEventListener('wheel', cancelSmooth);
+      viewport.removeEventListener('pointerdown', cancelSmooth);
+    };
+  }, [sessionId]);
 
   useLayoutEffect(() => {
     const viewport = viewportOf();
     if (!viewport) return;
-
-    if (!positioned) {
-      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
-      setPositioned(true);
-      return;
-    }
-
-    if (
-      searchLockRef.current ||
-      (!followRef.current && !nearBottomRef.current && !stickToTail)
-    )
-      return;
-    const nextTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-    if (Math.abs(viewport.scrollTop - nextTop) > 1) {
-      scrollViewportTo(viewport, nextTop);
-    }
-  }, [heights, messages.length, positioned, stickToTail, viewportHeight]);
+    if (searchLockRef.current || smoothingRef.current) return;
+    const pinToLiveEdge = !positionedRef.current || loadingHistory || followRef.current;
+    if (!pinToLiveEdge) return;
+    scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
+    positionedRef.current = true;
+  }, [historyStart, loadingHistory, messages, isStreamingMessage]);
 
   useLayoutEffect(() => {
     if (focusedIndex == null || focusedIndex < 0) {
@@ -471,9 +482,6 @@ function VirtualMessageList({
     if (!viewport) return;
     searchLockRef.current = true;
     followRef.current = false;
-    setStickToTail(false);
-    const top = (listRef.current?.offsetTop ?? 0) + messageOffset(heights, focusedIndex);
-    scrollViewportTo(viewport, top);
   }, [focusedIndex]);
 
   useLayoutEffect(() => {
@@ -482,15 +490,12 @@ function VirtualMessageList({
     clearTranscriptHighlights(list);
     const term = searchTerm.trim();
     if (!term || focusedIndex == null || focusedIndex < 0) return;
-
     const row = list.querySelector(`[data-message-index="${focusedIndex}"]`);
     if (!(row instanceof HTMLElement)) return;
-
     const current = paintTranscriptHighlights(row, term, searchCaseSensitive, searchOccurrence);
     if (!searchLockRef.current) return;
     const viewport = viewportOf();
     if (!viewport) return;
-
     const target = current ?? row;
     const targetRect = target.getBoundingClientRect();
     const viewportRect = viewport.getBoundingClientRect();
@@ -503,137 +508,69 @@ function VirtualMessageList({
       followRef.current = false;
       scrollViewportTo(viewport, centered);
     }
-  }, [
-    focusedIndex,
-    measureVersion,
-    searchCaseSensitive,
-    searchOccurrence,
-    searchTerm,
-    windowRange.end,
-    windowRange.start,
-  ]);
+  }, [focusedIndex, historyStart, searchCaseSensitive, searchOccurrence, searchTerm]);
 
   useEffect(() => {
     const scrollToEnd = () => {
       const viewport = viewportOf();
       if (!viewport) return;
       searchLockRef.current = false;
-      followRef.current = true;
-      nearBottomRef.current = true;
-      setStickToTail(true);
-      // If the tail is already mounted, this is the real end. If it is not,
-      // the layout effect scrolls again once the bottom spacer is gone.
-      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
+      const instant = prefersInstantScroll();
+      followRef.current = instant;
+      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight, true);
     };
-
     window.addEventListener(AppEvents.SCROLL_CHAT_TO_BOTTOM, scrollToEnd);
     return () => window.removeEventListener(AppEvents.SCROLL_CHAT_TO_BOTTOM, scrollToEnd);
   }, []);
 
   useEffect(() => {
-    if (messages.length === 0) return;
-    const completedKey = sessionId;
+    if (loadingHistory || messages.length === 0) return;
+    const completedKey = `${sessionId}:${messages.length}`;
     if (completedSessionRef.current === completedKey) return;
-
     const timeout = window.setTimeout(() => {
       completedSessionRef.current = completedKey;
       onRenderingComplete?.();
     }, 50);
-
     return () => window.clearTimeout(timeout);
-  }, [messages.length, onRenderingComplete, sessionId]);
-
-  const recordHeight = useCallback((key: string, height: number) => {
-    if (height <= 0) return;
-    const previous = heightsRef.current.get(key);
-    if (previous !== undefined && Math.abs(previous - height) < 1) return;
-    heightsRef.current.set(key, height);
-    if (scrollingRef.current) {
-      pendingMeasureRef.current = true;
-      return;
-    }
-    if (measureFlushRef.current) return;
-    measureFlushRef.current = true;
-    queueMicrotask(() => {
-      measureFlushRef.current = false;
-      setMeasureVersion((version) => version + 1);
-    });
-  }, []);
+  }, [loadingHistory, messages.length, onRenderingComplete, sessionId]);
 
   const rows = useVisibleRows({
     append,
-    end: windowRange.end,
+    end: messages.length,
     isStreamingMessage,
     isUserMessage,
     messages,
     onMessageUpdate,
     renderMessage,
     sessionId,
-    start: windowRange.start,
+    start: historyStart,
     submitElicitationResponse,
     toolCallNotifications,
   });
 
   return (
-    <div
-      ref={listRef}
-      data-testid="virtual-message-list"
-      style={{ overflowAnchor: 'none' }}
-    >
-      {windowRange.paddingTop > 0 && (
-        <div data-testid="virtual-spacer-top" style={{ height: windowRange.paddingTop }} />
+    <div ref={listRef} data-testid="virtual-message-list" style={{ overflowAnchor: 'auto' }}>
+      {rows}
+      {loadingHistory && (
+        <div
+          data-testid="history-loading-overlay"
+          className="flex justify-center py-2"
+          style={{
+            position: 'sticky',
+            bottom: 8,
+            zIndex: 20,
+            pointerEvents: 'none',
+            overflowAnchor: 'none',
+          }}
+        >
+          <div className="rounded-full border border-border-primary bg-background-primary/95 px-3 shadow-sm">
+            <LoadingGoose
+              chatState={ChatState.LoadingConversation}
+              message={intl.formatMessage(i18n.loadingHistory)}
+            />
+          </div>
+        </div>
       )}
-      {messages.slice(windowRange.start, windowRange.end).map((message, offset) => {
-        const index = windowRange.start + offset;
-        const key = messageKeyOf(message, index);
-        return (
-          <MeasuredRow key={key} messageKey={key} messageIndex={index} onHeight={recordHeight}>
-            {rows[offset]}
-          </MeasuredRow>
-        );
-      })}
-      {windowRange.paddingBottom > 0 && (
-        <div data-testid="virtual-spacer-bottom" style={{ height: windowRange.paddingBottom }} />
-      )}
-    </div>
-  );
-}
-
-function MeasuredRow({
-  children,
-  messageKey,
-  messageIndex,
-  onHeight,
-}: {
-  children: ReactNode;
-  messageKey: string;
-  messageIndex: number;
-  onHeight: (messageKey: string, height: number) => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-
-    const measure = () => {
-      onHeight(messageKey, element.getBoundingClientRect().height);
-    };
-    measure();
-
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [messageKey, onHeight]);
-
-  return (
-    <div
-      ref={ref}
-      data-message-index={messageIndex}
-      style={{ display: 'flow-root', position: 'relative' }}
-    >
-      {children}
     </div>
   );
 }
@@ -682,14 +619,7 @@ function BatchedMessageList({
     }, batchDelay);
 
     return () => window.clearTimeout(timeout);
-  }, [
-    batchDelay,
-    batchSize,
-    isLoading,
-    messages.length,
-    renderedCount,
-    showLoadingThreshold,
-  ]);
+  }, [batchDelay, batchSize, isLoading, messages.length, renderedCount, showLoadingThreshold]);
 
   useEffect(() => {
     onRenderingComplete?.();

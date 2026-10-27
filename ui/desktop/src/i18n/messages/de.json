@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, one {# Nachricht ausgeblendet} other {# Nachrichten ausgeblendet}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Chat wird geladen"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Modell geändert: {previousModel} → {currentModel}"
   },

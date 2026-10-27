@@ -4,6 +4,12 @@ import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
 type ScrollBehavior = 'auto' | 'smooth';
 
 import { cn } from '../../utils';
+import {
+  attachWheelSmoothing,
+  cancelWheelSmoothing,
+  prefersInstantScroll,
+  smoothScrollTo,
+} from '../../utils/smoothScroll';
 
 export interface ScrollAreaHandle {
   scrollToBottom: () => void;
@@ -44,12 +50,17 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
     const contentRef = React.useRef<HTMLDivElement>(null);
     const [isFollowing, setIsFollowing] = React.useState(true);
     const [isScrolled, setIsScrolled] = React.useState(false);
+    const isFollowingRef = React.useRef(true);
     const userScrolledUpRef = React.useRef(false);
     const lastScrollHeightRef = React.useRef(0);
     const isActivelyScrollingRef = React.useRef(false);
     const scrollTimeoutRef = React.useRef<number | null>(null);
+    const smoothingRef = React.useRef(false);
+    const cancelSmoothRef = React.useRef<(() => void) | null>(null);
 
-    const BOTTOM_SCROLL_THRESHOLD = 200;
+    isFollowingRef.current = isFollowing;
+
+    const BOTTOM_SCROLL_THRESHOLD = 48;
 
     const isAtBottom = React.useCallback(() => {
       if (!viewportRef.current) return false;
@@ -62,19 +73,16 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
     }, []);
 
     const scrollToBottom = React.useCallback(() => {
-      if (viewportRef.current) {
-        // Jump instantly rather than animating: a smooth programmatic scroll
-        // emits intermediate scroll events that handleScroll mistakes for a
-        // manual scroll-up, which disables auto-follow mid-animation.
-        viewportRef.current.scrollTo({
-          top: viewportRef.current.scrollHeight,
-          behavior: 'auto',
-        });
-        // When explicitly scrolling to bottom, reset the following state
-        setIsFollowing(true);
-        userScrolledUpRef.current = false;
-        onScrollChange?.(true);
-      }
+      if (!viewportRef.current) return;
+      const viewport = viewportRef.current;
+      const target = viewport.scrollHeight - viewport.clientHeight;
+      cancelWheelSmoothing(viewport);
+      cancelSmoothRef.current?.();
+      smoothingRef.current = !prefersInstantScroll();
+      cancelSmoothRef.current = smoothScrollTo(viewport, Math.max(0, target));
+      setIsFollowing(true);
+      userScrolledUpRef.current = false;
+      onScrollChange?.(true);
     }, [onScrollChange]);
 
     const scrollToPosition = React.useCallback(
@@ -130,16 +138,30 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
         }, 100);
       }
 
+      const movedUp = scrollTop < lastScrollTopRef.current - 1;
       lastScrollTopRef.current = scrollTop;
 
-      // Detect if user manually scrolled up from the bottom
-      if (!currentIsAtBottom && isFollowing) {
-        // user scrolled up, disabling auto-scroll
+      if (smoothingRef.current) {
+        if (currentIsAtBottom) smoothingRef.current = false;
+        setIsScrolled(scrollTop > 0);
+        if (handleScrollProp) handleScrollProp(viewport);
+        return;
+      }
+
+      // Leave follow only after the viewport has left the live edge. A tiny
+      // upward move while still at the bottom hid the jump-to-bottom control
+      // and left auto-scroll off, so the user could not reach new tokens.
+      if (movedUp && !currentIsAtBottom) {
         userScrolledUpRef.current = true;
-        setIsFollowing(false);
-        onScrollChange?.(false);
+        if (isFollowing) {
+          setIsFollowing(false);
+          onScrollChange?.(false);
+        }
       } else if (currentIsAtBottom && userScrolledUpRef.current) {
-        // user scrolled back to bottom
+        userScrolledUpRef.current = false;
+        setIsFollowing(true);
+        onScrollChange?.(true);
+      } else if (currentIsAtBottom && !isFollowing) {
         userScrolledUpRef.current = false;
         setIsFollowing(true);
         onScrollChange?.(true);
@@ -184,39 +206,91 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       lastScrollHeightRef.current = currentScrollHeight;
     }, [children, autoScroll, isFollowing]);
 
-    // Keep pinned to the bottom when content grows from async media (images,
-    // syntax highlighting) that resizes after paint without a React re-render,
-    // so it isn't covered by the [children] effect above.
+    // Async markdown, images, and syntax highlighting change card height after
+    // paint. Pin while following. Otherwise keep the first on-screen message
+    // still so a taller card above the viewport does not shove the view down.
     React.useEffect(() => {
-      if (!autoScroll) return;
       const viewport = viewportRef.current;
       const content = contentRef.current;
       if (!viewport || !content || typeof ResizeObserver === 'undefined') return;
 
-      const observer = new ResizeObserver(() => {
-        // Mirror the [children] effect's guards, including isActivelyScrolling, so
-        // the re-pin doesn't fight a user scrolling up while content is still growing.
-        if (isFollowing && !userScrolledUpRef.current && !isActivelyScrollingRef.current) {
-          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' });
+      type Anchor = { node: HTMLElement; top: number };
+      let anchor: Anchor | null = null;
+
+      const captureAnchor = () => {
+        const viewportRect = viewport.getBoundingClientRect();
+        const rows = content.querySelectorAll('[data-message-index]');
+        for (const row of rows) {
+          if (!(row instanceof HTMLElement)) continue;
+          const rect = row.getBoundingClientRect();
+          if (rect.bottom > viewportRect.top + 8 && rect.top < viewportRect.bottom) {
+            anchor = { node: row, top: rect.top };
+            return;
+          }
         }
+        anchor = null;
+      };
+
+      const observer = new ResizeObserver(() => {
+        if (
+          isFollowingRef.current &&
+          !userScrolledUpRef.current &&
+          !isActivelyScrollingRef.current &&
+          !smoothingRef.current
+        ) {
+          cancelWheelSmoothing(viewport);
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' });
+          captureAnchor();
+          return;
+        }
+        if (!anchor) {
+          captureAnchor();
+          return;
+        }
+        const drift = anchor.node.getBoundingClientRect().top - anchor.top;
+        if (Math.abs(drift) >= 1) {
+          viewport.scrollTop += drift;
+        }
+        captureAnchor();
       });
       observer.observe(content);
-      return () => observer.disconnect();
-    }, [autoScroll, isFollowing]);
+      captureAnchor();
+      viewport.addEventListener('scroll', captureAnchor, { passive: true });
+      return () => {
+        observer.disconnect();
+        viewport.removeEventListener('scroll', captureAnchor);
+      };
+    }, []);
 
     // Add scroll event listener
     React.useEffect(() => {
       const viewport = viewportRef.current;
       if (!viewport) return;
 
+      const cancelSmooth = () => {
+        if (!smoothingRef.current) return;
+        cancelSmoothRef.current?.();
+        cancelSmoothRef.current = null;
+        smoothingRef.current = false;
+      };
       viewport.addEventListener('scroll', handleScroll, { passive: true });
+      viewport.addEventListener('wheel', cancelSmooth, { passive: true });
+      viewport.addEventListener('pointerdown', cancelSmooth);
       return () => {
         viewport.removeEventListener('scroll', handleScroll);
+        viewport.removeEventListener('wheel', cancelSmooth);
+        viewport.removeEventListener('pointerdown', cancelSmooth);
         if (scrollTimeoutRef.current) {
           clearTimeout(scrollTimeoutRef.current);
         }
       };
     }, [handleScroll]);
+
+    React.useEffect(() => {
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      return attachWheelSmoothing(viewport);
+    }, []);
 
     return (
       <ScrollAreaPrimitive.Root

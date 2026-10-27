@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, other {#개의 메시지를 숨겼습니다}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "채팅을 불러오는 중"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "모델 변경: {previousModel} → {currentModel}"
   },

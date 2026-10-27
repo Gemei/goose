@@ -2045,6 +2045,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count,plural,one{# message hidden} other{# messages hidden}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Chat is loading"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Model changed: {previousModel} → {currentModel}"
   },

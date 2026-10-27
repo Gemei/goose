@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, one {# message masqué} other {# messages masqués}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Chargement du chat"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Modèle modifié : {previousModel} → {currentModel}"
   },

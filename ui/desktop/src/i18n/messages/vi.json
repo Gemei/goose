@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, other {# tin nhắn đã bị ẩn}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Đang tải cuộc trò chuyện"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Mô hình đã thay đổi: {previousModel} → {currentModel}"
   },

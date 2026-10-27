@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "已隱藏 {count, plural, other {# 則訊息}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "正在載入聊天"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "模型已變更：{previousModel} → {currentModel}"
   },

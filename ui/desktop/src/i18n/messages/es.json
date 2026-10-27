@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, one {# mensaje oculto} other {# mensajes ocultos}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "El chat se está cargando"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Modelo cambiado: {previousModel} → {currentModel}"
   },

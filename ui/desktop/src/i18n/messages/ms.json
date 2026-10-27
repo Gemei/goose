@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, other {# mesej disembunyikan}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Sembang sedang dimuatkan"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Model ditukar: {previousModel} → {currentModel}"
   },

@@ -2663,6 +2663,9 @@
   "messageList.hiddenMessages": {
     "defaultMessage": "{count, plural, other {# pesan disembunyikan}}"
   },
+  "messageList.loadingHistory": {
+    "defaultMessage": "Chat sedang dimuat"
+  },
   "messageList.modelChanged": {
     "defaultMessage": "Model diubah: {previousModel} → {currentModel}"
   },
