@@ -44,7 +44,13 @@ export const SessionIndicators = React.memo<SessionIndicatorsProps>(
     if (isStreaming) {
       return (
         <div className="flex items-center gap-1">
-          <Loader2 className="w-3 h-3 text-blue-500 animate-spin" aria-label={intl.formatMessage(i18n.streaming)} />
+          <span
+            className="status-spinner"
+            role="status"
+            aria-label={intl.formatMessage(i18n.streaming)}
+          >
+            <Loader2 className="w-3 h-3 text-blue-500" aria-hidden="true" />
+          </span>
         </div>
       );
     }
@@ -52,7 +58,10 @@ export const SessionIndicators = React.memo<SessionIndicatorsProps>(
     if (hasUnread) {
       return (
         <div className="flex items-center gap-1">
-          <div className="w-2 h-2 bg-green-500 rounded-full" aria-label={intl.formatMessage(i18n.newActivity)} />
+          <div
+            className="w-2 h-2 bg-green-500 rounded-full"
+            aria-label={intl.formatMessage(i18n.newActivity)}
+          />
         </div>
       );
     }

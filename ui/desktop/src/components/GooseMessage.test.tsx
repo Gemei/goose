@@ -57,9 +57,33 @@ describe('GooseMessage', () => {
       { wrapper: IntlTestWrapper }
     );
 
-    expect(screen.getByText('Thinking').closest('button')).toHaveAttribute(
-      'aria-expanded',
-      'false'
+    const thinking = screen.getByText('Thinking');
+    expect(thinking.closest('button')).toHaveAttribute('aria-expanded', 'false');
+    expect(thinking).toHaveClass('thinking-pulse');
+  });
+
+  it('does not pulse Thinking after the reply has finished', () => {
+    const message: Message = {
+      content: [{ type: 'thinking', thinking: 'Working it out', signature: '' }],
+      created: 1,
+      metadata: { agentVisible: true, userVisible: true },
+      role: 'assistant',
+    };
+
+    render(
+      <GooseMessage
+        sessionId="session"
+        message={message}
+        hideTimestamp={false}
+        toolStates={[]}
+        toolNotifications={[]}
+        toolConfirmationShownInline={false}
+        append={vi.fn()}
+        isStreaming={false}
+      />,
+      { wrapper: IntlTestWrapper }
     );
+
+    expect(screen.getByText('Thinking')).not.toHaveClass('thinking-pulse');
   });
 });

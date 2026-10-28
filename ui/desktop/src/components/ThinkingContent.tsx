@@ -6,9 +6,14 @@ import Expand from './ui/Expand';
 interface ThinkingContentProps {
   content: string;
   isExpanded: boolean;
+  isStreaming?: boolean;
 }
 
-export default function ThinkingContent({ content, isExpanded }: ThinkingContentProps) {
+export default function ThinkingContent({
+  content,
+  isExpanded,
+  isStreaming = false,
+}: ThinkingContentProps) {
   const [manualToggle, setManualToggle] = useState<boolean | null>(null);
   const prevIsExpanded = useRef(isExpanded);
 
@@ -25,7 +30,9 @@ export default function ThinkingContent({ content, isExpanded }: ThinkingContent
     <Collapsible open={expanded} onOpenChange={(open) => setManualToggle(open)} className="mb-2">
       <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer">
         <Expand size={3} isExpanded={expanded} />
-        <span className="italic">Thinking</span>
+        <span className={isStreaming && !expanded ? 'italic thinking-pulse' : 'italic'}>
+          Thinking
+        </span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="mt-1 ml-[18px] text-xs text-text-secondary italic">

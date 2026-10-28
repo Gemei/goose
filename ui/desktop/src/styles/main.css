@@ -288,6 +288,36 @@
 }
 
 /* animations */
+@keyframes status-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-spinner {
+  display: inline-flex;
+  flex-shrink: 0;
+  transform-origin: center;
+  animation: status-spin 0.9s linear infinite;
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.thinking-pulse {
+  animation: thinking-pulse 1.8s ease-in-out infinite;
+}
+
 @keyframes appear {
   from {
     opacity: 0;
@@ -379,9 +409,9 @@
 /* Global reduced motion support - applies when user has system preference set */
 @media (prefers-reduced-motion: reduce) {
   /* Disable all CSS animations and transitions, except for toasts which need transitions for auto-dismiss */
-  *:not(.Toastify *),
-  *:not(.Toastify *)::before,
-  *:not(.Toastify *)::after {
+  *:not(.Toastify *):not(.status-spinner):not(.thinking-pulse),
+  *:not(.Toastify *):not(.status-spinner):not(.thinking-pulse)::before,
+  *:not(.Toastify *):not(.status-spinner):not(.thinking-pulse)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -393,8 +423,17 @@
   .animate-spin,
   .animate-pulse,
   .animate-bounce,
-  [class*='animate-']:not(.Toastify *) {
+  [class*='animate-']:not(.Toastify *):not(.status-spinner):not(.thinking-pulse) {
     animation: none !important;
+  }
+
+  /* Activity indicators still need to move so streaming is visible */
+  .status-spinner {
+    animation: status-spin 0.9s linear infinite !important;
+  }
+
+  .thinking-pulse {
+    animation: thinking-pulse 1.8s ease-in-out infinite !important;
   }
 
   /* Page transitions */
