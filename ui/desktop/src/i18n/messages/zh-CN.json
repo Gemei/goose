@@ -3965,6 +3965,12 @@
   "settings.close": {
     "defaultMessage": "关闭"
   },
+  "settings.closeToTray.description": {
+    "defaultMessage": "Closing the window hides goose to the tray icon instead of quitting"
+  },
+  "settings.closeToTray.title": {
+    "defaultMessage": "Minimize to tray"
+  },
   "settings.costTracking.description": {
     "defaultMessage": "显示模型定价和使用费用"
   },

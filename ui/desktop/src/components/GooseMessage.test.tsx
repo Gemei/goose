@@ -34,4 +34,32 @@ describe('GooseMessage', () => {
     expect(screen.getByText('Thinking')).toBeInTheDocument();
     expect(screen.getByLabelText('ops_auto_effort: thinking high')).toBeInTheDocument();
   });
+
+  it('keeps Thinking collapsed while a reply is streaming', () => {
+    const message: Message = {
+      content: [{ type: 'thinking', thinking: 'Working it out', signature: '' }],
+      created: 1,
+      metadata: { agentVisible: true, userVisible: true },
+      role: 'assistant',
+    };
+
+    render(
+      <GooseMessage
+        sessionId="session"
+        message={message}
+        hideTimestamp={false}
+        toolStates={[]}
+        toolNotifications={[]}
+        toolConfirmationShownInline={false}
+        append={vi.fn()}
+        isStreaming={true}
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    expect(screen.getByText('Thinking').closest('button')).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+  });
 });

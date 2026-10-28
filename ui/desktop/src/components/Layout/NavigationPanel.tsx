@@ -19,6 +19,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip';
 import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { cn } from '../../utils';
 import type { ProjectGroup } from '../../utils/projectSessions';
+import {
+  readChatsExpanded,
+  readCollapsedProjects,
+  writeChatsExpanded,
+  writeCollapsedProjects,
+} from '../../utils/chatNavCollapse';
 import { defineMessages, useIntl } from '../../i18n';
 
 type StreamState = 'idle' | 'loading' | 'streaming' | 'error';
@@ -309,8 +315,16 @@ export const Navigation: React.FC<{
     }
   }, [isNavExpanded, fetchSessions]);
 
-  const [isChatsExpanded, setIsChatsExpanded] = useState(true);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [isChatsExpanded, setIsChatsExpanded] = useState(readChatsExpanded);
+  const [collapsedProjects, setCollapsedProjects] = useState(readCollapsedProjects);
+
+  const toggleChatsExpanded = useCallback(() => {
+    setIsChatsExpanded((expanded) => {
+      const next = !expanded;
+      writeChatsExpanded(next);
+      return next;
+    });
+  }, []);
 
   const toggleProjectCollapsed = useCallback((path: string) => {
     setCollapsedProjects((prev) => {
@@ -320,6 +334,7 @@ export const Navigation: React.FC<{
       } else {
         next.add(path);
       }
+      writeCollapsedProjects(next);
       return next;
     });
   }, []);
@@ -351,7 +366,7 @@ export const Navigation: React.FC<{
 
       <div className="flex-1 min-h-0 flex flex-col mt-3">
         <button
-          onClick={() => setIsChatsExpanded((v) => !v)}
+          onClick={toggleChatsExpanded}
           className="flex items-center gap-1 px-4 py-1 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors self-start"
         >
           {isChatsExpanded ? (

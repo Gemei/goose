@@ -48,6 +48,11 @@ const i18n = defineMessages({
     id: 'settings.menuBarIcon.description',
     defaultMessage: 'Show goose in the menu bar',
   },
+  closeToTray: { id: 'settings.closeToTray.title', defaultMessage: 'Minimize to tray' },
+  closeToTrayDesc: {
+    id: 'settings.closeToTray.description',
+    defaultMessage: 'Closing the window hides goose to the tray icon instead of quitting',
+  },
   dockIcon: { id: 'settings.dockIcon.title', defaultMessage: 'Dock icon' },
   dockIconDesc: { id: 'settings.dockIcon.description', defaultMessage: 'Show goose in the dock' },
   preventSleep: { id: 'settings.preventSleep.title', defaultMessage: 'Prevent Sleep' },
@@ -180,6 +185,7 @@ interface AppSettingsSectionProps {
 
 export default function AppSettingsSection({ scrollToSection }: AppSettingsSectionProps) {
   const [menuBarIconEnabled, setMenuBarIconEnabled] = useState(true);
+  const [closeToTrayEnabled, setCloseToTrayEnabled] = useState(true);
   const [dockIconEnabled, setDockIconEnabled] = useState(true);
   const [wakelockEnabled, setWakelockEnabled] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -228,6 +234,10 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
   useEffect(() => {
     window.electron.getMenuBarIconState().then((enabled) => {
       setMenuBarIconEnabled(enabled);
+    });
+
+    window.electron.getSetting('closeToTray').then((enabled) => {
+      setCloseToTrayEnabled(enabled ?? true);
     });
 
     window.electron.getWakelockState().then((enabled) => {
@@ -284,6 +294,18 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
     if (success) {
       setDockIconEnabled(newState);
       trackSettingToggled('dock_icon', newState);
+    }
+  };
+
+  const handleCloseToTrayToggle = async (checked: boolean) => {
+    setCloseToTrayEnabled(checked);
+    await window.electron.setSetting('closeToTray', checked);
+    trackSettingToggled('close_to_tray', checked);
+    if (checked && !menuBarIconEnabled) {
+      const success = await window.electron.setMenuBarIcon(true);
+      if (success) {
+        setMenuBarIconEnabled(true);
+      }
     }
   };
 
@@ -404,6 +426,22 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
               <Switch
                 checked={menuBarIconEnabled}
                 onCheckedChange={handleMenuBarIconToggle}
+                variant="mono"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-text-primary text-xs">{intl.formatMessage(i18n.closeToTray)}</h3>
+              <p className="text-xs text-text-secondary max-w-md mt-[2px]">
+                {intl.formatMessage(i18n.closeToTrayDesc)}
+              </p>
+            </div>
+            <div className="flex items-center">
+              <Switch
+                checked={closeToTrayEnabled && menuBarIconEnabled}
+                onCheckedChange={handleCloseToTrayToggle}
                 variant="mono"
               />
             </div>

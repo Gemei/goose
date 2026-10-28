@@ -61,6 +61,12 @@ import { openExternalUrl } from './utils/openExternalUrl';
 import { buildCSP, leaseBackendOrigin, shouldApplyRendererCsp } from './utils/csp';
 import { resolveWorkingDir } from './utils/workingDir';
 import {
+  hideWindowToTray,
+  revealWindowFromTray,
+  shouldHideWindowToTray,
+  shouldQuitWhenAllWindowsClosed,
+} from './utils/windowTray';
+import {
   DesktopFileAccess,
   isAuthorizedFileAccessRequest,
   readSelectedRecipe,
@@ -502,11 +508,7 @@ if (process.platform !== 'darwin') {
       // Only focus existing regular windows for non-bot/recipe URLs
       const regularWindows = getRegularWindows();
       if (regularWindows.length > 0) {
-        const mainWindow = regularWindows[0];
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore();
-        }
-        mainWindow.focus();
+        revealWindowFromTray(regularWindows[0]);
       } else if (!protocolUrl) {
         app.whenReady().then(async () => {
           const recentDirs = loadRecentDirs();
@@ -613,10 +615,7 @@ async function handleProtocolUrl(url: string, parsedUrl: URL) {
     let targetWindow: BrowserWindow | undefined;
     if (regularWindows.length > 0) {
       targetWindow = regularWindows[0];
-      if (targetWindow.isMinimized()) {
-        targetWindow.restore();
-      }
-      targetWindow.focus();
+      revealWindowFromTray(targetWindow);
     } else {
       targetWindow = await createChat(app, { dir: openDir || undefined });
     }
@@ -709,8 +708,7 @@ app.on('open-url', async (_event, url) => {
     const regularWindows = getRegularWindows();
     if (regularWindows.length > 0) {
       const targetWindow = regularWindows[0];
-      if (targetWindow.isMinimized()) targetWindow.restore();
-      targetWindow.focus();
+      revealWindowFromTray(targetWindow);
       if (parsedUrl.hostname === 'extension') {
         deliverExtensionDeepLink(url, targetWindow);
       }
@@ -952,6 +950,7 @@ let appConfig = {
 const windowMap = new Map<number, BrowserWindow>();
 const appWindows = new Map<string, BrowserWindow>();
 const desktopFileAccess = new DesktopFileAccess();
+let isQuitting = false;
 
 function requireRegularRendererWindow(event: IpcMainInvokeEvent): BrowserWindow {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
@@ -1443,6 +1442,13 @@ const createChat = async (
   }
   windowMap.set(windowId, mainWindow);
 
+  mainWindow.on('close', (event) => {
+    if (shouldHideWindowToTray(isQuitting, tray !== null, getSettings().closeToTray)) {
+      event.preventDefault();
+      hideWindowToTray(mainWindow);
+    }
+  });
+
   // Handle window closure
   mainWindow.on('closed', () => {
     windowMap.delete(windowId);
@@ -1646,7 +1652,7 @@ const createTray = () => {
 };
 
 const showWindow = async () => {
-  const windows = BrowserWindow.getAllWindows();
+  const windows = getRegularWindows();
 
   if (windows.length === 0) {
     log.info('No windows are open, creating a new one...');
@@ -1659,7 +1665,6 @@ const showWindow = async () => {
   const initialOffsetX = 30;
   const initialOffsetY = 30;
 
-  // Iterate over all windows
   windows.forEach((win, index) => {
     const currentBounds = win.getBounds();
     const newX = currentBounds.x + initialOffsetX * index;
@@ -1672,11 +1677,7 @@ const showWindow = async () => {
       height: currentBounds.height,
     });
 
-    if (!win.isVisible()) {
-      win.show();
-    }
-
-    win.focus();
+    revealWindowFromTray(win);
   });
 };
 
@@ -1925,6 +1926,7 @@ ipcMain.handle('get-setting', (_event, key: SettingKey) => {
 // Valid setting keys for runtime validation
 const validSettingKeys: Set<string> = new Set([
   'showMenuBarIcon',
+  'closeToTray',
   'showDockIcon',
   'enableWakelock',
   'enableNotifications',
@@ -1971,6 +1973,20 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
   if (key === 'disableAutoDownload') {
     setAutoDownloadDisabled(value as boolean);
   }
+
+  if (key === 'closeToTray') {
+    if (value === true && !tray) {
+      updateSettings((s) => {
+        s.showMenuBarIcon = true;
+      });
+      createTray();
+    }
+    if (value === false) {
+      for (const win of getRegularWindows()) {
+        revealWindowFromTray(win);
+      }
+    }
+  }
 });
 
 ipcMain.handle('get-secret-key', (event) => {
@@ -1999,6 +2015,9 @@ ipcMain.handle('set-menu-bar-icon', async (_event, show: boolean) => {
     createTray();
   } else {
     destroyTray();
+    for (const win of getRegularWindows()) {
+      revealWindowFromTray(win);
+    }
   }
   return true;
 });
@@ -2378,10 +2397,10 @@ const createNewWindow = async (app: App, dir?: string | null) => {
 };
 
 const focusWindow = () => {
-  const windows = BrowserWindow.getAllWindows();
+  const windows = getRegularWindows();
   if (windows.length > 0) {
     windows.forEach((win) => {
-      win.show();
+      revealWindowFromTray(win);
     });
     windows[windows.length - 1].webContents.send('focus-input');
   } else {
@@ -2791,8 +2810,11 @@ async function appMain() {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    const windows = getRegularWindows();
+    if (windows.length === 0) {
       createNewWindow(app);
+    } else {
+      windows.forEach((win) => revealWindowFromTray(win));
     }
   });
 
@@ -2818,8 +2840,7 @@ async function appMain() {
 
       if (existingWindows.length > 0) {
         const targetWindow = existingWindows[0];
-        targetWindow.show();
-        targetWindow.focus();
+        revealWindowFromTray(targetWindow);
         targetWindow.webContents.send('set-initial-message', query);
         return;
       }
@@ -3118,9 +3139,12 @@ app.on('will-quit', async () => {
   globalShortcut.unregisterAll();
 });
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 app.on('window-all-closed', () => {
-  // Only quit if we're not on macOS or don't have a tray icon
-  if (process.platform !== 'darwin' || !tray) {
+  if (shouldQuitWhenAllWindowsClosed(tray !== null, getSettings().closeToTray)) {
     app.quit();
   }
 });

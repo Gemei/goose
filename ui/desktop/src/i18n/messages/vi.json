@@ -3965,6 +3965,12 @@
   "settings.close": {
     "defaultMessage": "Đóng"
   },
+  "settings.closeToTray.description": {
+    "defaultMessage": "Closing the window hides goose to the tray icon instead of quitting"
+  },
+  "settings.closeToTray.title": {
+    "defaultMessage": "Minimize to tray"
+  },
   "settings.costTracking.description": {
     "defaultMessage": "Hiển thị giá mô hình và chi phí sử dụng"
   },

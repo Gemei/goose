@@ -14,6 +14,7 @@ import * as fs from 'fs/promises';
 import log from './logger';
 import { githubUpdater, isInstallerManaged } from './githubUpdater';
 import { loadRecentDirs } from './recentDirs';
+import { revealWindowFromTray } from './windowTray';
 import { errorMessage } from './conversionUtils';
 import {
   trackUpdateCheckStarted,
@@ -824,11 +825,7 @@ export function updateTrayMenu(hasUpdate: boolean) {
             height: currentBounds.height,
           });
 
-          if (!win.isVisible()) {
-            win.show();
-          }
-
-          win.focus();
+          revealWindowFromTray(win);
         });
       },
     },

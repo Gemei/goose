@@ -3965,6 +3965,12 @@
   "settings.close": {
     "defaultMessage": "닫기"
   },
+  "settings.closeToTray.description": {
+    "defaultMessage": "Closing the window hides goose to the tray icon instead of quitting"
+  },
+  "settings.closeToTray.title": {
+    "defaultMessage": "Minimize to tray"
+  },
   "settings.costTracking.description": {
     "defaultMessage": "모델 가격 및 사용 비용을 표시합니다."
   },

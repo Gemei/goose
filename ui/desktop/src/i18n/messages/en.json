@@ -4109,6 +4109,12 @@
   "settings.close": {
     "defaultMessage": "Close"
   },
+  "settings.closeToTray.description": {
+    "defaultMessage": "Closing the window hides goose to the tray icon instead of quitting"
+  },
+  "settings.closeToTray.title": {
+    "defaultMessage": "Minimize to tray"
+  },
   "settings.costTracking.description": {
     "defaultMessage": "Show model pricing and usage costs"
   },
