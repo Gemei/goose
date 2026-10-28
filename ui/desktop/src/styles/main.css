@@ -641,6 +641,13 @@ pre:has(> code.bg-inline-code) {
   padding-bottom: 24px;
 }
 
+/* After history has laid out, skip paint/layout of offscreen cards. auto
+   intrinsic size remembers the measured height so scrolling does not hitch. */
+.chat-history-settled > [data-testid='message-container'] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}
+
 /* Sidebar scrollbar styles */
 .sidebar-scrollbar {
   scrollbar-width: thin;

@@ -217,14 +217,28 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       type Anchor = { node: HTMLElement; top: number };
       let anchor: Anchor | null = null;
 
+      const rowInView = (row: HTMLElement, viewportRect: DOMRect) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > viewportRect.top + 8 && rect.top < viewportRect.bottom ? rect : null;
+      };
+
       const captureAnchor = () => {
         const viewportRect = viewport.getBoundingClientRect();
-        const rows = content.querySelectorAll('[data-message-index]');
-        for (const row of rows) {
-          if (!(row instanceof HTMLElement)) continue;
-          const rect = row.getBoundingClientRect();
-          if (rect.bottom > viewportRect.top + 8 && rect.top < viewportRect.bottom) {
-            anchor = { node: row, top: rect.top };
+        if (anchor?.node.isConnected) {
+          const rect = rowInView(anchor.node, viewportRect);
+          if (rect) {
+            anchor = { node: anchor.node, top: rect.top };
+            return;
+          }
+        }
+        const x = viewportRect.left + Math.min(48, Math.max(8, viewportRect.width / 2));
+        const y = viewportRect.top + 16;
+        const hit = document.elementsFromPoint?.(x, y) ?? [];
+        for (const node of hit) {
+          if (!(node instanceof Element)) continue;
+          const row = node.closest('[data-message-index]');
+          if (row instanceof HTMLElement && content.contains(row)) {
+            anchor = { node: row, top: row.getBoundingClientRect().top };
             return;
           }
         }

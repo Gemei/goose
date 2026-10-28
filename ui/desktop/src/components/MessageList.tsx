@@ -27,6 +27,45 @@ import {
   type NotificationEvent,
   type SystemNotificationContent,
 } from '../types/message';
+import LoadingGoose from './LoadingGoose';
+import { ChatState } from '../types/chatState';
+import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
+import {
+  deriveMessageRowContexts,
+  inferenceModel,
+  isModelChange,
+  type InferenceModel,
+  type MessageRowContext,
+} from './messageRowContext';
+import { AppEvents } from '../constants/events';
+import { clearTranscriptHighlights, paintTranscriptHighlights } from '../utils/transcriptHighlight';
+import { cancelWheelSmoothing, prefersInstantScroll, smoothScrollTo } from '../utils/smoothScroll';
+
+// Rejoin the live edge only when the user is actually at the bottom. A 200px
+// band kept follow on through wheel ticks, so streaming height growth snapped
+// the viewport back before they could leave the tail.
+const FOLLOW_RESUME_PX = 48;
+// Long chats mount the live tail first, then older cards in idle batches.
+// After historyStart hits 0 every card stays in document flow so a wheel
+// tick never mounts GooseMessage. That load can take a few seconds.
+const HISTORY_TAIL = 32;
+const HISTORY_BATCH = 6;
+const HISTORY_BATCH_MS = 32;
+const LIVE_TAIL = 12;
+
+const i18n = defineMessages({
+  loadingMessages: {
+    id: 'progressiveMessageList.loadingMessages',
+    defaultMessage: 'Loading messages... ({renderedCount}/{totalCount})',
+  },
+  modelChanged: {
+    id: 'messageList.modelChanged',
+    defaultMessage: 'Model changed: {previousModel} → {currentModel}',
+  },
+  requestedModel: {
+    id: 'messageList.requestedModel',
+    defaultMessage: '{model} (requested)',
+  },
   loadingHistory: {
     id: 'messageList.loadingHistory',
     defaultMessage: 'Chat is loading',
@@ -35,9 +74,6 @@ import {
 
 const emptyToolCallNotifications = new Map<string, NotificationEvent[]>();
 const emptyAppend = () => {};
-const HEAD_MESSAGE_COUNT = 20;
-const TAIL_MESSAGE_COUNT = 200;
-const MESSAGE_DISPLAY_LIMIT = HEAD_MESSAGE_COUNT + TAIL_MESSAGE_COUNT;
 
 function getSystemNotification(message: Message): SystemNotificationContent | undefined {
   return getCreditsExhaustedNotification(message) ?? getInlineSystemNotification(message);
@@ -188,16 +224,17 @@ interface SharedRowProps {
   isStreamingMessage: boolean;
   isUserMessage: (message: Message) => boolean;
   messages: Message[];
-  onMessageUpdate?: ProgressiveMessageListProps['onMessageUpdate'];
-  renderMessage?: ProgressiveMessageListProps['renderMessage'];
+  onMessageUpdate?: MessageListProps['onMessageUpdate'];
+  renderMessage?: MessageListProps['renderMessage'];
   sessionId: string;
-  submitElicitationResponse?: ProgressiveMessageListProps['submitElicitationResponse'];
+  submitElicitationResponse?: MessageListProps['submitElicitationResponse'];
   toolCallNotifications: Map<string, NotificationEvent[]>;
 }
 
-function useVisibleRows({
+function buildVisibleRows({
   append,
   end,
+  intl,
   isStreamingMessage,
   isUserMessage,
   messages,
@@ -207,25 +244,32 @@ function useVisibleRows({
   start,
   submitElicitationResponse,
   toolCallNotifications,
-}: SharedRowProps & { start: number; end: number }) {
-  const intl = useIntl();
-  const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
-
-  return messages.slice(start, end).map((message, offset) => {
+}: SharedRowProps & {
+  end: number;
+  intl: ReturnType<typeof useIntl>;
+  start: number;
+}) {
+  const slice = messages.slice(start, end);
+  const contextSource = start > 0 ? [messages[start - 1], ...slice] : slice;
+  const rowContexts = deriveMessageRowContexts(contextSource);
+  return slice.map((message, offset) => {
     const index = start + offset;
     if (!message.metadata.userVisible) return null;
     if (renderMessage) return renderMessage(message, index);
 
     const isUser = isUserMessage(message);
-    const rowContext = rowContexts[index];
-    const currentResolvedModel = getResolvedModel(message);
+    const rowContext = rowContexts[start > 0 ? offset + 1 : offset];
+    const currentModel = inferenceModel(message);
+    const previousModel = rowContext.previousModel;
+    const modelLabel = (model: InferenceModel) =>
+      model.confirmed
+        ? getModelDisplayName(model.id)
+        : intl.formatMessage(i18n.requestedModel, { model: getModelDisplayName(model.id) });
     const modelChangeMessage =
-      currentResolvedModel &&
-      rowContext.previousResolvedModel &&
-      currentResolvedModel !== rowContext.previousResolvedModel
+      currentModel && previousModel && isModelChange(previousModel, currentModel)
         ? intl.formatMessage(i18n.modelChanged, {
-            previousModel: getModelDisplayName(rowContext.previousResolvedModel),
-            currentModel: getModelDisplayName(currentResolvedModel),
+            previousModel: modelLabel(previousModel),
+            currentModel: modelLabel(currentModel),
           })
         : null;
     const toolNotifications = rowContext.toolStates.map((toolState) =>
@@ -254,6 +298,17 @@ function useVisibleRows({
       />
     );
   });
+}
+
+function useVisibleRows(props: SharedRowProps & { start: number; end: number }) {
+  const intl = useIntl();
+  const { messages, start, end } = props;
+  return useMemo(
+    () => buildVisibleRows({ ...props, intl }),
+    // Slice identity is the only cheap lock BatchedMessageList needs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messages, start, end, intl, props.isStreamingMessage, props.toolCallNotifications]
+  );
 }
 
 function messageKeyOf(message: Message, index: number) {
@@ -534,23 +589,83 @@ function VirtualMessageList({
     return () => window.clearTimeout(timeout);
   }, [loadingHistory, messages.length, onRenderingComplete, sessionId]);
 
-  const rows = useVisibleRows({
-    append,
-    end: messages.length,
-    isStreamingMessage,
-    isUserMessage,
-    messages,
-    onMessageUpdate,
-    renderMessage,
-    sessionId,
-    start: historyStart,
-    submitElicitationResponse,
-    toolCallNotifications,
-  });
+  const liveStart = Math.max(historyStart, Math.max(0, messages.length - LIVE_TAIL));
+  const historyLock = isStreamingMessage ? (messages[liveStart - 1] ?? liveStart) : messages;
+
+  const historyRows = useMemo(
+    () =>
+      buildVisibleRows({
+        append,
+        end: liveStart,
+        intl,
+        isStreamingMessage: false,
+        isUserMessage,
+        messages,
+        onMessageUpdate,
+        renderMessage,
+        sessionId,
+        start: historyStart,
+        submitElicitationResponse,
+        toolCallNotifications,
+      }),
+    // Freeze the prefix while the last cards stream so React does not walk
+    // hundreds of GooseMessage fibers on every token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      append,
+      historyLock,
+      historyStart,
+      intl,
+      isUserMessage,
+      liveStart,
+      onMessageUpdate,
+      renderMessage,
+      sessionId,
+      submitElicitationResponse,
+      toolCallNotifications,
+    ]
+  );
+
+  const liveRows = useMemo(
+    () =>
+      buildVisibleRows({
+        append,
+        end: messages.length,
+        intl,
+        isStreamingMessage,
+        isUserMessage,
+        messages,
+        onMessageUpdate,
+        renderMessage,
+        sessionId,
+        start: liveStart,
+        submitElicitationResponse,
+        toolCallNotifications,
+      }),
+    [
+      append,
+      intl,
+      isStreamingMessage,
+      isUserMessage,
+      liveStart,
+      messages,
+      onMessageUpdate,
+      renderMessage,
+      sessionId,
+      submitElicitationResponse,
+      toolCallNotifications,
+    ]
+  );
 
   return (
-    <div ref={listRef} data-testid="virtual-message-list" style={{ overflowAnchor: 'auto' }}>
-      {rows}
+    <div
+      ref={listRef}
+      data-testid="virtual-message-list"
+      className={loadingHistory ? undefined : 'chat-history-settled'}
+      style={{ overflowAnchor: 'auto' }}
+    >
+      {historyRows}
+      {liveRows}
       {loadingHistory && (
         <div
           data-testid="history-loading-overlay"
@@ -581,6 +696,10 @@ function BatchedMessageList({
   toolCallNotifications = emptyToolCallNotifications,
   append = emptyAppend,
   isUserMessage,
+  batchSize = 5,
+  batchDelay = 20,
+  showLoadingThreshold = 50,
+  renderMessage,
   isStreamingMessage = false,
   onMessageUpdate,
   onRenderingComplete,
@@ -589,7 +708,7 @@ function BatchedMessageList({
   searchTerm = '',
   searchCaseSensitive = false,
   searchOccurrence = 0,
-}: ProgressiveMessageListProps) {
+}: MessageListProps) {
   const intl = useIntl();
   const [renderedCount, setRenderedCount] = useState(() =>
     initialRevealedCount(messages.length, showLoadingThreshold, batchSize)
@@ -622,8 +741,18 @@ function BatchedMessageList({
   }, [batchDelay, batchSize, isLoading, messages.length, renderedCount, showLoadingThreshold]);
 
   useEffect(() => {
-    onRenderingComplete?.();
-  }, [messages.length, onRenderingComplete, sessionId]);
+    if (isLoading) return;
+
+    const completedMessageKey = `${sessionId}:${messages.length}`;
+    if (completedMessageKeyRef.current === completedMessageKey) return;
+
+    const timeout = window.setTimeout(() => {
+      completedMessageKeyRef.current = completedMessageKey;
+      onRenderingComplete?.();
+    }, 50);
+
+    return () => window.clearTimeout(timeout);
+  }, [isLoading, messages.length, onRenderingComplete, sessionId]);
 
   useLayoutEffect(() => {
     const list = listRef.current;

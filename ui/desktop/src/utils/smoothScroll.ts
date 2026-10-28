@@ -3,7 +3,7 @@ const MAX_MS = 320;
 const LINE_HEIGHT_PX = 40;
 // Seconds to close ~63% of the remaining distance. A duration tween that
 // restarted on every notch punched the motion; this keeps one glide going.
-const WHEEL_TAU_S = 0.28;
+const WHEEL_TAU_S = 0.38;
 
 const easeOutQuart = (t: number) => 1 - (1 - t) ** 4;
 
