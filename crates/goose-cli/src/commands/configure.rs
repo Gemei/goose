@@ -1197,6 +1197,11 @@ fn collect_headers() -> anyhow::Result<HashMap<String, String>> {
 fn configure_builtin_extension() -> anyhow::Result<()> {
     let extensions = vec![
         (
+            "askuser",
+            "Ask User",
+            "Ask the user multiple-choice questions in chat",
+        ),
+        (
             "autovisualiser",
             "Auto Visualiser",
             "Data visualisation and UI generation tools",

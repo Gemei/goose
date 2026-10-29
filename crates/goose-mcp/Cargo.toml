@@ -20,7 +20,8 @@ computer-controller = ["dep:lopdf", "dep:docx-rs", "dep:image", "dep:umya-spread
 document-tools = ["computer-controller"]
 memory-server = []
 tutorial-server = ["dep:include_dir"]
-bundled-mcp = ["autovisualiser", "computer-controller", "document-tools", "memory-server", "tutorial-server"]
+ask-user = ["rmcp/elicitation"]
+bundled-mcp = ["autovisualiser", "computer-controller", "document-tools", "memory-server", "tutorial-server", "ask-user"]
 
 [dependencies]
 rmcp = { workspace = true, features = ["server", "client", "transport-io", "macros"] }

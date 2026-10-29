@@ -421,7 +421,7 @@ impl ClientHandler for GooseClient {
                 tool_call_request_id,
                 message,
                 schema_value,
-                Duration::from_secs(300),
+                Duration::from_secs(15 * 60),
             )
             .await
             .map(|response| match response {

@@ -28,6 +28,10 @@ target/
 node_modules
 /.pnpm-store/
 ./ui/desktop/out
+./ui/desktop/out-build
+./ui/desktop/out-pkg
+./ui/desktop/out-run-*
+./ui/desktop/.forge-out-dir
 
 # Generated goose DLLs (built at build time, not checked in)
 ui/desktop/src/bin/goose_ffi.dll

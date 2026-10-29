@@ -1,6 +1,19 @@
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 const { resolve } = require('path');
+const { readFileSync } = require('fs');
+
+function resolveOutDir() {
+  try {
+    const dir = readFileSync(resolve(__dirname, '.forge-out-dir'), 'utf8').trim();
+    if (dir) {
+      return dir;
+    }
+  } catch {
+    // default output directory
+  }
+  return 'out';
+}
 
 const isLinuxVulkanBuild = process.env.GOOSE_DESKTOP_LINUX_VARIANT === 'vulkan';
 
@@ -59,6 +72,7 @@ if (process.env.APPLE_TEAM_ID) {
 
 module.exports = {
   packagerConfig: cfg,
+  outDir: resolveOutDir(),
   rebuildConfig: {},
   publishers: [
     {

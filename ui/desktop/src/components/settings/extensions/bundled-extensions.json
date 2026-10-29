@@ -11,6 +11,17 @@
     "bundled": true
   },
   {
+    "id": "askuser",
+    "name": "askuser",
+    "display_name": "Ask User",
+    "description": "Ask the user multiple-choice questions in chat.",
+    "enabled": true,
+    "type": "builtin",
+    "env_keys": [],
+    "timeout": 300,
+    "bundled": true
+  },
+  {
     "id": "computercontroller",
     "name": "computercontroller",
     "display_name": "Computer Controller",

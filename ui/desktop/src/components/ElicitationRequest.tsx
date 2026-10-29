@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import type { ActionRequired } from '../types/message';
 import { defineMessages, useIntl } from '../i18n';
+import { ACP_ELICITATION_TIMEOUT_SECONDS } from '../acp/elicitationRequests';
+import { parseQuestionnaire } from '../utils/questionnaireSchema';
 import { Button } from './ui/button';
 import JsonSchemaForm from './ui/JsonSchemaForm';
 import type { JsonSchema } from './ui/JsonSchemaForm';
+import QuestionnaireForm from './QuestionnaireForm';
 
 const i18n = defineMessages({
   cancelled: {
@@ -14,6 +17,10 @@ const i18n = defineMessages({
     id: 'elicitationRequest.submitted',
     defaultMessage: 'Information submitted',
   },
+  skipped: {
+    id: 'elicitationRequest.skipped',
+    defaultMessage: 'Question skipped',
+  },
   expired: {
     id: 'elicitationRequest.expired',
     defaultMessage: 'This request has expired. The extension will need to ask again.',
@@ -22,9 +29,17 @@ const i18n = defineMessages({
     id: 'elicitationRequest.defaultMessage',
     defaultMessage: 'Goose needs some information from you.',
   },
+  askingHeader: {
+    id: 'elicitationRequest.askingHeader',
+    defaultMessage: 'Goose is asking',
+  },
   submit: {
     id: 'elicitationRequest.submit',
     defaultMessage: 'Submit',
+  },
+  skip: {
+    id: 'elicitationRequest.skip',
+    defaultMessage: 'Skip',
   },
   accept: {
     id: 'elicitationRequest.accept',
@@ -40,13 +55,18 @@ const i18n = defineMessages({
   },
 });
 
-const ELICITATION_TIMEOUT_SECONDS = 300;
+const ELICITATION_TIMEOUT_SECONDS = ACP_ELICITATION_TIMEOUT_SECONDS;
 
 interface ElicitationRequestProps {
   isCancelledMessage: boolean;
+  isDeclinedMessage?: boolean;
   isClicked: boolean;
   actionRequiredContent: ActionRequired & { type: 'actionRequired' };
-  onSubmit: (elicitationId: string, userData: Record<string, unknown>) => Promise<boolean>;
+  onSubmit: (
+    elicitationId: string,
+    userData: Record<string, unknown>,
+    action?: 'accept' | 'decline'
+  ) => Promise<boolean>;
 }
 
 function formatTime(seconds: number): string {
@@ -57,12 +77,14 @@ function formatTime(seconds: number): string {
 
 export default function ElicitationRequest({
   isCancelledMessage,
+  isDeclinedMessage = false,
   isClicked,
   actionRequiredContent,
   onSubmit,
 }: ElicitationRequestProps) {
   const intl = useIntl();
   const [submitted, setSubmitted] = useState(isClicked);
+  const [skipped, setSkipped] = useState(isDeclinedMessage);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [timeRemaining, setTimeRemaining] = useState(ELICITATION_TIMEOUT_SECONDS);
@@ -76,7 +98,14 @@ export default function ElicitationRequest({
   }, [isClicked]);
 
   useEffect(() => {
-    if (submitted || isCancelledMessage || isClicked) return;
+    if (isDeclinedMessage) {
+      setSkipped(true);
+      setSubmitError(undefined);
+    }
+  }, [isDeclinedMessage]);
+
+  useEffect(() => {
+    if (submitted || skipped || isCancelledMessage || isClicked || isDeclinedMessage) return;
 
     const interval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -89,7 +118,7 @@ export default function ElicitationRequest({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [submitted, isCancelledMessage, isClicked]);
+  }, [submitted, skipped, isCancelledMessage, isClicked, isDeclinedMessage]);
 
   if (actionRequiredContent.data.actionType !== 'elicitation') {
     return null;
@@ -99,20 +128,33 @@ export default function ElicitationRequest({
 
   const schema = (requested_schema ?? {}) as JsonSchema;
   const hasSchemaFields = Boolean(schema.properties && Object.keys(schema.properties).length > 0);
+  const questionnaire = hasSchemaFields ? parseQuestionnaire(schema) : undefined;
 
-  const submitResponse = async (formData: Record<string, unknown>) => {
-    setSubmitted(true);
+  const submitResponse = async (
+    formData: Record<string, unknown>,
+    action: 'accept' | 'decline' = 'accept'
+  ) => {
+    if (action === 'decline') {
+      setSkipped(true);
+    } else {
+      setSubmitted(true);
+    }
     setIsSubmitting(true);
     setSubmitError(undefined);
     try {
-      const didSubmit = await onSubmit(elicitationId, formData);
+      const didSubmit =
+        action === 'decline'
+          ? await onSubmit(elicitationId, formData, 'decline')
+          : await onSubmit(elicitationId, formData);
       if (!didSubmit) {
         setSubmitted(false);
+        setSkipped(false);
         setSubmitError(intl.formatMessage(i18n.submitError));
       }
     } catch (error) {
       console.error('Error submitting elicitation response:', error);
       setSubmitted(false);
+      setSkipped(false);
       setSubmitError(intl.formatMessage(i18n.submitError));
     } finally {
       setIsSubmitting(false);
@@ -125,6 +167,10 @@ export default function ElicitationRequest({
 
   const handleAccept = () => {
     void submitResponse({});
+  };
+
+  const handleSkip = () => {
+    void submitResponse({}, 'decline');
   };
 
   if (isCancelledMessage) {
@@ -151,6 +197,14 @@ export default function ElicitationRequest({
           </svg>
           <span>{intl.formatMessage(i18n.submitted)}</span>
         </div>
+      </div>
+    );
+  }
+
+  if (skipped) {
+    return (
+      <div className="goose-message-content bg-background-secondary rounded-2xl px-4 py-2 text-text-primary">
+        <span>{intl.formatMessage(i18n.skipped)}</span>
       </div>
     );
   }
@@ -185,16 +239,33 @@ export default function ElicitationRequest({
   return (
     <div className="flex flex-col">
       <div className="goose-message-content bg-background-secondary rounded-2xl rounded-b-none px-4 py-2 text-text-primary">
-        <div className="flex justify-between items-start gap-4">
-          <span>{message || intl.formatMessage(i18n.defaultMessage)}</span>
-        </div>
+        {questionnaire ? (
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-secondary">
+            {intl.formatMessage(i18n.askingHeader)}
+          </div>
+        ) : (
+          <div className="flex justify-between items-start gap-4">
+            <span>{message || intl.formatMessage(i18n.defaultMessage)}</span>
+          </div>
+        )}
       </div>
       <div className="goose-message-content bg-background-primary border border-border-primary dark:border-gray-700 rounded-b-2xl px-4 py-3">
-        {hasSchemaFields ? (
+        {questionnaire ? (
+          <QuestionnaireForm
+            questionnaire={questionnaire}
+            onSubmit={handleSubmit}
+            onSkip={handleSkip}
+            submitLabel={intl.formatMessage(i18n.submit)}
+            skipLabel={intl.formatMessage(i18n.skip)}
+            disabled={isSubmitting}
+          />
+        ) : hasSchemaFields ? (
           <JsonSchemaForm
             schema={schema}
             onSubmit={handleSubmit}
+            onCancel={handleSkip}
             submitLabel={intl.formatMessage(i18n.submit)}
+            cancelLabel={intl.formatMessage(i18n.skip)}
             disabled={isSubmitting}
           />
         ) : (

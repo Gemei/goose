@@ -962,6 +962,12 @@
   "elicitationRequest.accept": {
     "defaultMessage": "수락"
   },
+  "elicitationRequest.answerAllHint": {
+    "defaultMessage": "Answer every question to enable Submit"
+  },
+  "elicitationRequest.askingHeader": {
+    "defaultMessage": "Goose is asking"
+  },
   "elicitationRequest.cancelled": {
     "defaultMessage": "정보 요청이 취소되었습니다."
   },
@@ -970,6 +976,30 @@
   },
   "elicitationRequest.expired": {
     "defaultMessage": "이 요청은 만료되었습니다. 익스텐션이 다시 질문해야 합니다."
+  },
+  "elicitationRequest.notesLabel": {
+    "defaultMessage": "Optional Instructions"
+  },
+  "elicitationRequest.notesPlaceholder": {
+    "defaultMessage": "Extra context, constraints, or comments"
+  },
+  "elicitationRequest.other": {
+    "defaultMessage": "Other"
+  },
+  "elicitationRequest.otherPlaceholder": {
+    "defaultMessage": "Type your answer"
+  },
+  "elicitationRequest.recommended": {
+    "defaultMessage": "Recommended"
+  },
+  "elicitationRequest.selectAllThatApply": {
+    "defaultMessage": "(select all that apply)"
+  },
+  "elicitationRequest.skip": {
+    "defaultMessage": "Skip"
+  },
+  "elicitationRequest.skipped": {
+    "defaultMessage": "Question skipped"
   },
   "elicitationRequest.submit": {
     "defaultMessage": "제출"

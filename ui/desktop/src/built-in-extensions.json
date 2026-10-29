@@ -9,6 +9,15 @@
     "timeout": 300
   },
   {
+    "id": "askuser",
+    "name": "Ask User",
+    "description": "Ask the user multiple-choice questions in chat.",
+    "enabled": true,
+    "type": "builtin",
+    "env_keys": [],
+    "timeout": 300
+  },
+  {
     "id": "computercontroller",
     "name": "Computer Controller",
     "description": "General computer control tools that don't require you to be a developer or engineer.",

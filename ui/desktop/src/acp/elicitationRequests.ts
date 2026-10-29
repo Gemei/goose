@@ -26,7 +26,7 @@ interface PendingElicitationRequest {
 }
 
 const pendingRequests = new Map<string, PendingElicitationRequest>();
-export const ACP_ELICITATION_TIMEOUT_SECONDS = 300;
+export const ACP_ELICITATION_TIMEOUT_SECONDS = 15 * 60;
 
 export async function requestAcpElicitation(
   request: CreateElicitationRequest
@@ -70,7 +70,8 @@ export async function requestAcpElicitation(
 export function resolveAcpElicitationRequest(
   sessionId: string,
   elicitationId: string,
-  userData: Record<string, unknown>
+  userData: Record<string, unknown>,
+  action: 'accept' | 'decline' = 'accept'
 ): boolean {
   const key = elicitationRequestKey(sessionId, elicitationId);
   const pending = pendingRequests.get(key);
@@ -80,12 +81,18 @@ export function resolveAcpElicitationRequest(
 
   pendingRequests.delete(key);
   clearTimeout(pending.timeoutId);
-  acpChatSessionActions.setElicitationStatus(sessionId, elicitationId, 'submitted');
+  acpChatSessionActions.setElicitationStatus(
+    sessionId,
+    elicitationId,
+    action === 'decline' ? 'declined' : 'submitted'
+  );
   acpChatSessionActions.resolveUserInputRequest(
     sessionId,
     acpElicitationUserInputRequestId(elicitationId)
   );
-  pending.resolve(acceptedElicitationResponse(userData));
+  pending.resolve(
+    action === 'decline' ? declinedElicitationResponse() : acceptedElicitationResponse(userData)
+  );
   return true;
 }
 
@@ -111,6 +118,10 @@ function acceptedElicitationResponse(userData: Record<string, unknown>): CreateE
     action: 'accept',
     content: userData as Record<string, ElicitationContentValue>,
   };
+}
+
+function declinedElicitationResponse(): CreateElicitationResponse {
+  return { action: 'decline' };
 }
 
 function cancelledElicitationResponse(): CreateElicitationResponse {

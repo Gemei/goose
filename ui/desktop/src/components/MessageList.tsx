@@ -107,7 +107,8 @@ interface MessageRowProps {
   sessionId: string;
   submitElicitationResponse?: (
     elicitationId: string,
-    userData: Record<string, unknown>
+    userData: Record<string, unknown>,
+    action?: 'accept' | 'decline'
   ) => Promise<boolean>;
   toolNotifications: readonly (NotificationEvent[] | undefined)[];
 }
@@ -209,7 +210,8 @@ interface MessageListProps {
   searchOccurrence?: number;
   submitElicitationResponse?: (
     elicitationId: string,
-    userData: Record<string, unknown>
+    userData: Record<string, unknown>,
+    action?: 'accept' | 'decline'
   ) => Promise<boolean>;
 }
 

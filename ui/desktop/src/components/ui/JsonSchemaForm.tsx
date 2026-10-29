@@ -44,9 +44,10 @@ const i18n = defineMessages({
 
 interface JsonSchemaProperty {
   type?: string;
-  description?: string;
+  description?: string | null;
   default?: unknown;
-  enum?: string[];
+  enum?: string[] | null;
+  oneOf?: Array<{ const?: string; title?: string; description?: string | null }>;
   minimum?: number;
   maximum?: number;
   minLength?: number;
@@ -59,6 +60,7 @@ export interface JsonSchema {
   required?: string[];
   title?: string;
   description?: string;
+  propertyOrder?: string[];
 }
 
 interface JsonSchemaFormProps {

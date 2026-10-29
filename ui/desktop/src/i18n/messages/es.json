@@ -962,6 +962,12 @@
   "elicitationRequest.accept": {
     "defaultMessage": "Aceptar"
   },
+  "elicitationRequest.answerAllHint": {
+    "defaultMessage": "Answer every question to enable Submit"
+  },
+  "elicitationRequest.askingHeader": {
+    "defaultMessage": "Goose is asking"
+  },
   "elicitationRequest.cancelled": {
     "defaultMessage": "La solicitud de información fue cancelada."
   },
@@ -970,6 +976,30 @@
   },
   "elicitationRequest.expired": {
     "defaultMessage": "Esta solicitud ha expirado. La extensión tendrá que preguntar de nuevo."
+  },
+  "elicitationRequest.notesLabel": {
+    "defaultMessage": "Optional Instructions"
+  },
+  "elicitationRequest.notesPlaceholder": {
+    "defaultMessage": "Extra context, constraints, or comments"
+  },
+  "elicitationRequest.other": {
+    "defaultMessage": "Other"
+  },
+  "elicitationRequest.otherPlaceholder": {
+    "defaultMessage": "Type your answer"
+  },
+  "elicitationRequest.recommended": {
+    "defaultMessage": "Recommended"
+  },
+  "elicitationRequest.selectAllThatApply": {
+    "defaultMessage": "(select all that apply)"
+  },
+  "elicitationRequest.skip": {
+    "defaultMessage": "Skip"
+  },
+  "elicitationRequest.skipped": {
+    "defaultMessage": "Question skipped"
   },
   "elicitationRequest.submit": {
     "defaultMessage": "Enviar"

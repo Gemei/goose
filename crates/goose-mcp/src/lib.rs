@@ -4,7 +4,8 @@ use once_cell::sync::Lazy;
     feature = "autovisualiser",
     feature = "computer-controller",
     feature = "memory-server",
-    feature = "tutorial-server"
+    feature = "tutorial-server",
+    feature = "ask-user"
 ))]
 use rmcp::{ServerHandler, ServiceExt};
 use std::collections::HashMap;
@@ -17,6 +18,8 @@ pub static APP_STRATEGY: Lazy<AppStrategyArgs> = Lazy::new(|| AppStrategyArgs {
     app_name: "goose".to_string(),
 });
 
+#[cfg(feature = "ask-user")]
+pub mod askuser;
 #[cfg(feature = "autovisualiser")]
 pub mod autovisualiser;
 #[cfg(feature = "computer-controller")]
@@ -25,7 +28,8 @@ pub mod computercontroller;
     feature = "autovisualiser",
     feature = "computer-controller",
     feature = "memory-server",
-    feature = "tutorial-server"
+    feature = "tutorial-server",
+    feature = "ask-user"
 ))]
 pub mod mcp_server_runner;
 #[cfg(feature = "memory-server")]
@@ -37,6 +41,8 @@ pub mod subprocess;
 #[cfg(feature = "tutorial-server")]
 pub mod tutorial;
 
+#[cfg(feature = "ask-user")]
+pub use askuser::AskUserServer;
 #[cfg(feature = "autovisualiser")]
 pub use autovisualiser::AutoVisualiserRouter;
 #[cfg(feature = "computer-controller")]
@@ -52,7 +58,8 @@ pub type SpawnServerFn = fn(tokio::io::DuplexStream, tokio::io::DuplexStream);
     feature = "autovisualiser",
     feature = "computer-controller",
     feature = "memory-server",
-    feature = "tutorial-server"
+    feature = "tutorial-server",
+    feature = "ask-user"
 ))]
 fn spawn_and_serve<S>(
     name: &'static str,
@@ -75,7 +82,8 @@ fn spawn_and_serve<S>(
     feature = "autovisualiser",
     feature = "computer-controller",
     feature = "memory-server",
-    feature = "tutorial-server"
+    feature = "tutorial-server",
+    feature = "ask-user"
 ))]
 macro_rules! builtin {
     ($name:ident, $server_ty:ty) => {{
@@ -97,5 +105,7 @@ pub static BUILTIN_EXTENSIONS: Lazy<HashMap<&'static str, SpawnServerFn>> = Lazy
     extensions.extend([builtin!(memory, MemoryServer)]);
     #[cfg(feature = "tutorial-server")]
     extensions.extend([builtin!(tutorial, TutorialServer)]);
+    #[cfg(feature = "ask-user")]
+    extensions.extend([builtin!(askuser, AskUserServer)]);
     extensions
 });

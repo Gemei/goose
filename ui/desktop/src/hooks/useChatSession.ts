@@ -275,7 +275,11 @@ export function useChatSession({
   );
 
   const submitElicitationResponse = useCallback(
-    async (elicitationId: string, userData: Record<string, unknown>) => {
+    async (
+      elicitationId: string,
+      userData: Record<string, unknown>,
+      action: 'accept' | 'decline' = 'accept'
+    ) => {
       const currentSnapshot = getCurrentSnapshot();
 
       if (
@@ -285,7 +289,7 @@ export function useChatSession({
         return false;
       }
 
-      if (!resolveAcpElicitationRequest(sessionId, elicitationId, userData)) {
+      if (!resolveAcpElicitationRequest(sessionId, elicitationId, userData, action)) {
         console.error('No pending ACP elicitation request found', { sessionId, elicitationId });
         return false;
       }

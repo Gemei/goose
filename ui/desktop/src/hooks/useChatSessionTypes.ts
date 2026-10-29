@@ -19,7 +19,8 @@ export interface UseChatSessionResult {
   onSteerQueuedMessage?: (input: UserInput) => Promise<boolean>;
   submitElicitationResponse: (
     elicitationId: string,
-    userData: Record<string, unknown>
+    userData: Record<string, unknown>,
+    action?: 'accept' | 'decline'
   ) => Promise<boolean>;
   stopStreaming: () => void;
   retrySessionLoad: () => Promise<void>;

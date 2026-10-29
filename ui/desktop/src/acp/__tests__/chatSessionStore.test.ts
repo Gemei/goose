@@ -648,6 +648,7 @@ describe('acpChatSessionStore', () => {
         id: 'acp_elicitation_1',
         isSubmitted: true,
         isCancelled: false,
+        isDeclined: false,
       },
     });
   });
@@ -670,6 +671,30 @@ describe('acpChatSessionStore', () => {
         id: 'acp_elicitation_1',
         isSubmitted: false,
         isCancelled: true,
+        isDeclined: false,
+      },
+    });
+  });
+
+  it('stores declined elicitation status', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.applyElicitationRequest(elicitationRequest(currentSessionId));
+
+    const snapshot = acpChatSessionActions.setElicitationStatus(
+      currentSessionId,
+      'acp_elicitation_1',
+      'declined'
+    );
+
+    expect(snapshot?.messages[0].content[0]).toMatchObject({
+      type: 'actionRequired',
+      data: {
+        actionType: 'elicitation',
+        id: 'acp_elicitation_1',
+        isSubmitted: false,
+        isCancelled: false,
+        isDeclined: true,
       },
     });
   });

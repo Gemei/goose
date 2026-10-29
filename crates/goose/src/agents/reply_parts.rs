@@ -181,21 +181,30 @@ fn is_mergeable_assistant_chunk(message: &Message) -> bool {
         })
 }
 
+#[cfg(feature = "code-mode")]
+fn is_ask_user_cards_tool(tool: &Tool) -> bool {
+    let name = tool.name.as_ref();
+    name == "ask_user_cards"
+        || name.ends_with("__ask_user_cards")
+        || crate::agents::extension_manager::get_tool_owner(tool).as_deref() == Some("askuser")
+}
+
+#[cfg(feature = "code-mode")]
+fn keep_tool_in_code_mode(tool: &Tool) -> bool {
+    let owner = crate::agents::extension_manager::get_tool_owner(tool);
+    (tool.name == crate::agents::final_output_tool::FINAL_OUTPUT_TOOL_NAME && owner.is_none())
+        || crate::agents::extension_manager::get_tool_resource_uri(tool).is_some()
+        || is_ask_user_cards_tool(tool)
+        || owner.is_some_and(|owner| crate::agents::extension_manager::is_first_class_extension(&owner))
+}
+
 pub(crate) fn prepare_inference_tools(
     mut tools: Vec<Tool>,
     code_execution_active: bool,
 ) -> Vec<Tool> {
     #[cfg(feature = "code-mode")]
     if code_execution_active {
-        tools.retain(|tool| {
-            let owner = crate::agents::extension_manager::get_tool_owner(tool);
-            (tool.name == crate::agents::final_output_tool::FINAL_OUTPUT_TOOL_NAME
-                && owner.is_none())
-                || owner.is_some_and(|owner| {
-                    crate::agents::extension_manager::is_first_class_extension(&owner)
-                })
-                || crate::agents::extension_manager::get_tool_resource_uri(tool).is_some()
-        });
+        tools.retain(keep_tool_in_code_mode);
     }
 
     #[cfg(not(feature = "code-mode"))]
@@ -1477,6 +1486,9 @@ mod tests {
         let hidden = make_tool_with_meta(Some(
             serde_json::json!({"goose_extension": "developer", "ui": {"visibility": ["app"]}}),
         ));
+        let mut ask_user =
+            make_tool_with_meta(Some(serde_json::json!({"goose_extension": "askuser"})));
+        ask_user.name = "askuser__ask_user_cards".into();
         let filtered = prepare_inference_tools(
             vec![
                 ordinary,
@@ -1485,6 +1497,7 @@ mod tests {
                 hidden,
                 final_output,
                 extension_final_output,
+                ask_user,
             ],
             true,
         );
@@ -1492,7 +1505,7 @@ mod tests {
             .iter()
             .map(|tool| tool.name.as_ref())
             .collect::<Vec<_>>();
-        assert_eq!(names, [FINAL_OUTPUT_TOOL_NAME, "resource__view", "shell"]);
+        assert_eq!(names, ["askuser__ask_user_cards", FINAL_OUTPUT_TOOL_NAME, "resource__view", "shell"]);
     }
 }
 

@@ -68,6 +68,17 @@
     ]
   },
   {
+    "id": "askuser",
+    "name": "Ask User",
+    "description": "Ask the user multiple-choice questions in chat via Grok-style cards",
+    "command": "",
+    "link": "https://github.com/aaif-goose/goose/tree/main/crates/goose-mcp/src/askuser",
+    "installation_notes": "This is a built-in extension that comes with goose. No installation required.",
+    "is_builtin": true,
+    "endorsed": true,
+    "environmentVariables": []
+  },
+  {
     "id": "autovisualiser",
     "name": "Auto Visualiser",
     "description": "Automatic data visualisation via MCP-UI",

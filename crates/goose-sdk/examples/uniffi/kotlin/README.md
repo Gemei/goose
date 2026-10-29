@@ -1,7 +1,9 @@
 # Kotlin/JVM GDK smoke test
 
 This is a small downstream Kotlin/JVM app that consumes the Maven artifact
-`io.github.aaif-goose:gdk` from `mavenLocal()`.
+`io.github.aaif-goose:gdk`. Gradle resolves it from the in-repo
+`crates/goose-sdk/maven` project (via `includeBuild`), then `mavenLocal()`,
+then Maven Central. The Cargo.toml version is often newer than Central.
 
 From the repository root, first build and publish the Maven artifact locally:
 

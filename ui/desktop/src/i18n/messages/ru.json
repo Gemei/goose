@@ -962,6 +962,12 @@
   "elicitationRequest.accept": {
     "defaultMessage": "Принять"
   },
+  "elicitationRequest.answerAllHint": {
+    "defaultMessage": "Answer every question to enable Submit"
+  },
+  "elicitationRequest.askingHeader": {
+    "defaultMessage": "Goose is asking"
+  },
   "elicitationRequest.cancelled": {
     "defaultMessage": "Запрос на информацию был отменен."
   },
@@ -970,6 +976,30 @@
   },
   "elicitationRequest.expired": {
     "defaultMessage": "Срок действия запроса истек. Расширению нужно будет запросить его снова."
+  },
+  "elicitationRequest.notesLabel": {
+    "defaultMessage": "Optional Instructions"
+  },
+  "elicitationRequest.notesPlaceholder": {
+    "defaultMessage": "Extra context, constraints, or comments"
+  },
+  "elicitationRequest.other": {
+    "defaultMessage": "Other"
+  },
+  "elicitationRequest.otherPlaceholder": {
+    "defaultMessage": "Type your answer"
+  },
+  "elicitationRequest.recommended": {
+    "defaultMessage": "Recommended"
+  },
+  "elicitationRequest.selectAllThatApply": {
+    "defaultMessage": "(select all that apply)"
+  },
+  "elicitationRequest.skip": {
+    "defaultMessage": "Skip"
+  },
+  "elicitationRequest.skipped": {
+    "defaultMessage": "Question skipped"
   },
   "elicitationRequest.submit": {
     "defaultMessage": "Отправить"

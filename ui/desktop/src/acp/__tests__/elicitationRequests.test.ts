@@ -101,6 +101,20 @@ describe('ACP elicitation requests', () => {
     });
   });
 
+  it('declines a pending form request when the user skips', async () => {
+    const response = requestAcpElicitation(formRequest('session-1'));
+    const appliedRequest = vi.mocked(acpChatSessionActions.applyElicitationRequest).mock
+      .calls[0][0];
+
+    expect(resolveAcpElicitationRequest('session-1', appliedRequest.id, {}, 'decline')).toBe(true);
+    expect(acpChatSessionActions.setElicitationStatus).toHaveBeenCalledWith(
+      'session-1',
+      appliedRequest.id,
+      'declined'
+    );
+    await expect(response).resolves.toEqual({ action: 'decline' });
+  });
+
   it('cancels unsupported requests', async () => {
     await expect(
       requestAcpElicitation({

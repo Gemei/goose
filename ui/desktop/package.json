@@ -5,7 +5,7 @@
   "version": "1.57.0",
   "description": "Goose App",
   "engines": {
-    "node": "^24.10.0",
+    "node": ">=22 <25",
     "pnpm": ">=10.30.0"
   },
   "main": ".vite/build/main.js",
@@ -18,8 +18,8 @@
     "start-gui-debug": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge start -- --inspect=9229",
     "start": "cd ../.. && just run-ui",
     "start:test-error": "GOOSE_TEST_ERROR=true electron-forge start",
-    "package": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge package",
-    "make": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge make",
+    "package": "node scripts/prepare-package-output.js && pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge package",
+    "make": "node scripts/prepare-package-output.js && pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge make",
     "make:win32-installer": "electron-builder --win --config electron-builder.nsis.yml --publish never --prepackaged",
     "bundle:default": "node scripts/prepare-platform-binaries.js && pnpm run make && BUNDLE_NAME=\"${GOOSE_BUNDLE_NAME:-Goose}\" && APP_DIR=\"out/${BUNDLE_NAME}-darwin-arm64\" && APP_BUNDLE=\"${APP_DIR}/${BUNDLE_NAME}.app\" && (cd \"$APP_DIR\" && ditto -c -k --sequesterRsrc --keepParent \"${BUNDLE_NAME}.app\" \"${BUNDLE_NAME}.zip\")",
     "bundle:intel": "node scripts/prepare-platform-binaries.js && pnpm run make --arch=x64 && BUNDLE_NAME=\"${GOOSE_BUNDLE_NAME:-Goose}\" && APP_DIR=\"out/${BUNDLE_NAME}-darwin-x64\" && APP_BUNDLE=\"${APP_DIR}/${BUNDLE_NAME}.app\" && (cd \"$APP_DIR\" && ditto -c -k --sequesterRsrc --keepParent \"${BUNDLE_NAME}.app\" \"${BUNDLE_NAME}_intel_mac.zip\")",

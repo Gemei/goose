@@ -40,7 +40,8 @@ interface GooseMessageProps {
   isStreaming: boolean;
   submitElicitationResponse?: (
     elicitationId: string,
-    userData: Record<string, unknown>
+    userData: Record<string, unknown>,
+    action?: 'accept' | 'decline'
   ) => Promise<boolean>;
 }
 
@@ -93,6 +94,7 @@ function GooseMessage({
       ? (elicitationContent.data as typeof elicitationContent.data & {
           isSubmitted?: boolean;
           isCancelled?: boolean;
+          isDeclined?: boolean;
         })
       : undefined;
 
@@ -240,6 +242,7 @@ function GooseMessage({
         {hasElicitation && submitElicitationResponse && (
           <ElicitationRequest
             isCancelledMessage={elicitationData?.isCancelled === true}
+            isDeclinedMessage={elicitationData?.isDeclined === true}
             isClicked={elicitationData?.isSubmitted === true}
             actionRequiredContent={elicitationContent}
             onSubmit={submitElicitationResponse}

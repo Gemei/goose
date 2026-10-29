@@ -39,6 +39,10 @@ export const getToolIcon = (toolName: string): React.ComponentType<ToolIconProps
     case 'retrieve_memories':
       return Brain;
 
+    // Ask User Extension Tools
+    case 'ask_user_cards':
+      return Delegate;
+
     // Computer Controller Extension Tools
     case 'computer_control':
       return Monitor;
@@ -96,6 +100,8 @@ export const getExtensionIcon = (extensionName: string): React.ComponentType<Too
       return Brain;
     case 'computercontroller':
       return Monitor;
+    case 'askuser':
+      return Delegate;
     default:
       return Tool;
   }

@@ -962,6 +962,12 @@
   "elicitationRequest.accept": {
     "defaultMessage": "Terima"
   },
+  "elicitationRequest.answerAllHint": {
+    "defaultMessage": "Answer every question to enable Submit"
+  },
+  "elicitationRequest.askingHeader": {
+    "defaultMessage": "Goose is asking"
+  },
   "elicitationRequest.cancelled": {
     "defaultMessage": "Permintaan maklumat telah dibatalkan."
   },
@@ -970,6 +976,30 @@
   },
   "elicitationRequest.expired": {
     "defaultMessage": "Permintaan ini telah luput. Sambungan perlu bertanya semula."
+  },
+  "elicitationRequest.notesLabel": {
+    "defaultMessage": "Optional Instructions"
+  },
+  "elicitationRequest.notesPlaceholder": {
+    "defaultMessage": "Extra context, constraints, or comments"
+  },
+  "elicitationRequest.other": {
+    "defaultMessage": "Other"
+  },
+  "elicitationRequest.otherPlaceholder": {
+    "defaultMessage": "Type your answer"
+  },
+  "elicitationRequest.recommended": {
+    "defaultMessage": "Recommended"
+  },
+  "elicitationRequest.selectAllThatApply": {
+    "defaultMessage": "(select all that apply)"
+  },
+  "elicitationRequest.skip": {
+    "defaultMessage": "Skip"
+  },
+  "elicitationRequest.skipped": {
+    "defaultMessage": "Question skipped"
   },
   "elicitationRequest.submit": {
     "defaultMessage": "Hantar"

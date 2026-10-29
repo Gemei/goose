@@ -7,7 +7,7 @@ import {
   messagesChange,
 } from './shared';
 
-export type ElicitationStatus = 'submitted' | 'cancelled';
+export type ElicitationStatus = 'submitted' | 'cancelled' | 'declined';
 
 export function applyElicitationRequest(
   state: AdapterState,
@@ -46,6 +46,7 @@ export function applyElicitationStatus(
   const statusData = {
     isSubmitted: status === 'submitted',
     isCancelled: status === 'cancelled',
+    isDeclined: status === 'declined',
   };
   let changed = false;
 
