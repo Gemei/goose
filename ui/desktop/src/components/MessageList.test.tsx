@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
-import type { IpcRendererEvent } from 'electron';
+import { render, screen } from '@testing-library/react';
 import type { ImageData, InferenceMetadata, Message, MessageContent } from '../types/message';
 import { IntlTestWrapper } from '../i18n/test-utils';
 import MessageList from './MessageList';
@@ -277,86 +276,4 @@ describe('MessageList model change disclosure', () => {
   });
 });
 
-describe('MessageList transcript window', () => {
-  function messages(count: number): Message[] {
-    return Array.from({ length: count }, (_, index) =>
-      message(`assistant-${index}`, 'assistant', [{ type: 'text', text: `Message ${index}` }])
-    );
-  }
 
-  it('renders the latest messages immediately and hides the middle', () => {
-    renderList(messages(500));
-
-    expect(screen.queryByText('assistant-0')).not.toBeNull();
-    expect(screen.queryByText('assistant-19')).not.toBeNull();
-    expect(screen.queryByText('assistant-20')).toBeNull();
-    expect(screen.queryByText('assistant-299')).toBeNull();
-    expect(screen.queryByText('assistant-300')).not.toBeNull();
-    expect(screen.queryByText('assistant-499')).not.toBeNull();
-    expect(screen.queryByText('280 messages hidden')).not.toBeNull();
-  });
-
-  it('counts and windows visible messages', () => {
-    const transcript = messages(300).map((item, index) =>
-      index >= 100 && index < 160
-        ? { ...item, metadata: { ...item.metadata, userVisible: false } }
-        : item
-    );
-
-    renderList(transcript);
-
-    expect(screen.queryByText('assistant-20')).toBeNull();
-    expect(screen.queryByText('assistant-39')).toBeNull();
-    expect(screen.queryByText('assistant-40')).not.toBeNull();
-    expect(screen.queryByText('assistant-100')).toBeNull();
-    expect(screen.queryByText('20 messages hidden')).not.toBeNull();
-  });
-
-  it('renders the full conversation when requested', () => {
-    renderList(messages(221));
-
-    expect(screen.queryByText('assistant-20')).toBeNull();
-
-    act(() => screen.getByRole('button', { name: 'Show all' }).click());
-
-    expect(screen.queryByText('assistant-20')).not.toBeNull();
-    expect(screen.queryByText(/message hidden/)).toBeNull();
-  });
-
-  it('renders the full conversation when search opens from the keyboard', () => {
-    renderList(messages(221));
-
-    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true })));
-
-    expect(screen.queryByText('assistant-20')).not.toBeNull();
-  });
-
-  it('renders the full conversation when search opens from the menu', () => {
-    renderList(messages(221));
-    const findHandler = vi
-      .mocked(window.electron.on)
-      .mock.calls.find(([event]) => event === 'find-command')?.[1];
-
-    act(() => findHandler?.({} as IpcRendererEvent));
-
-    expect(screen.queryByText('assistant-20')).not.toBeNull();
-  });
-
-  it('uses the hidden messages when deriving row context', () => {
-    const transcript = messages(221).map((item, index) => ({
-      ...item,
-      metadata: {
-        ...item.metadata,
-        inference: {
-          provider: 'test',
-          requestedModel: 'test-model',
-          resolvedModel: index < 20 ? 'old-model' : 'new-model',
-        },
-      },
-    }));
-
-    renderList(transcript);
-
-    expect(screen.queryByText('Model changed: old-model → new-model')).toBeNull();
-  });
-});

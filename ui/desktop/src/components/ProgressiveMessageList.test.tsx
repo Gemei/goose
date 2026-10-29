@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import type { ImageData, Message, MessageContent } from '../types/message';
 import { IntlTestWrapper } from '../i18n/test-utils';
-import ProgressiveMessageList from './ProgressiveMessageList';
+import MessageList from './MessageList';
 
 const renderCounts = vi.hoisted(() => new Map<string, number>());
 const messageUpdateCallbacks = vi.hoisted(
@@ -88,7 +88,7 @@ function toolResponse(id: string): MessageContent {
 
 function renderList(messages: Message[]) {
   return render(
-    <ProgressiveMessageList
+    <MessageList
       messages={messages}
       sessionId="test-session"
       append={append}
@@ -98,7 +98,7 @@ function renderList(messages: Message[]) {
   );
 }
 
-describe('ProgressiveMessageList render isolation', () => {
+describe('MessageList render isolation', () => {
   beforeEach(() => {
     renderCounts.clear();
     messageUpdateCallbacks.clear();
@@ -114,7 +114,7 @@ describe('ProgressiveMessageList render isolation', () => {
     const { rerender } = renderList(messages);
 
     rerender(
-      <ProgressiveMessageList
+      <MessageList
         messages={cloneMessages(messages)}
         sessionId="test-session"
         append={append}
@@ -133,7 +133,7 @@ describe('ProgressiveMessageList render isolation', () => {
     const updatedMessages = cloneMessages(messages);
     updatedMessages[2].content = [{ type: 'text', text: 'Streaming update' }];
     rerender(
-      <ProgressiveMessageList
+      <MessageList
         messages={updatedMessages}
         sessionId="test-session"
         append={append}
@@ -161,7 +161,7 @@ describe('ProgressiveMessageList render isolation', () => {
     updatedMessages[2].content = [toolResponse('tool-1')];
 
     rerender(
-      <ProgressiveMessageList
+      <MessageList
         messages={updatedMessages}
         sessionId="test-session"
         append={append}
@@ -176,7 +176,7 @@ describe('ProgressiveMessageList render isolation', () => {
   it('preserves the message update callback', () => {
     const onMessageUpdate = vi.fn();
     render(
-      <ProgressiveMessageList
+      <MessageList
         messages={[message('user-1', 'user', [{ type: 'text', text: 'Original' }])]}
         sessionId="test-session"
         append={append}
@@ -193,7 +193,7 @@ describe('ProgressiveMessageList render isolation', () => {
   });
 });
 
-describe('ProgressiveMessageList batching', () => {
+describe('MessageList batching', () => {
   const messages = Array.from({ length: 10 }, (_, index) =>
     message(`assistant-${index}`, 'assistant', [{ type: 'text', text: `Message ${index}` }])
   );
@@ -210,7 +210,7 @@ describe('ProgressiveMessageList batching', () => {
     render(
       <StrictMode>
         <IntlTestWrapper>
-          <ProgressiveMessageList
+          <MessageList
             messages={messages}
             sessionId="test-session"
             append={append}
@@ -255,7 +255,7 @@ describe('ProgressiveMessageList batching', () => {
   });
 });
 
-describe('ProgressiveMessageList virtualization', () => {
+describe('MessageList virtualization', () => {
   const messages = Array.from({ length: 80 }, (_, index) =>
     message(`assistant-${index}`, 'assistant', [{ type: 'text', text: `Message ${index}` }])
   );
@@ -263,7 +263,7 @@ describe('ProgressiveMessageList virtualization', () => {
   function renderVirtualList() {
     return render(
       <IntlTestWrapper>
-        <ProgressiveMessageList
+        <MessageList
           messages={messages}
           sessionId="test-session"
           append={append}
@@ -287,7 +287,7 @@ describe('ProgressiveMessageList virtualization', () => {
     const { container } = render(
       <div data-radix-scroll-area-viewport data-testid="viewport">
         <IntlTestWrapper>
-          <ProgressiveMessageList
+          <MessageList
             messages={messages}
             sessionId="test-session"
             append={append}
@@ -320,7 +320,7 @@ describe('ProgressiveMessageList virtualization', () => {
     const { container, rerender } = render(
       <div data-radix-scroll-area-viewport data-testid="viewport">
         <IntlTestWrapper>
-          <ProgressiveMessageList
+          <MessageList
             messages={messages}
             sessionId="test-session"
             append={append}
@@ -354,7 +354,7 @@ describe('ProgressiveMessageList virtualization', () => {
     rerender(
       <div data-radix-scroll-area-viewport data-testid="viewport">
         <IntlTestWrapper>
-          <ProgressiveMessageList
+          <MessageList
             messages={next}
             sessionId="test-session"
             append={append}
@@ -488,7 +488,7 @@ describe('ProgressiveMessageList virtualization', () => {
     const { container } = render(
       <div data-radix-scroll-area-viewport data-testid="viewport">
         <IntlTestWrapper>
-          <ProgressiveMessageList
+          <MessageList
             messages={messages}
             sessionId="test-session"
             append={append}
