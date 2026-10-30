@@ -364,6 +364,48 @@ describe('createAcpSessionNotificationAdapter', () => {
         expect(firstContent(messages[0])).toMatchObject({ type: 'text', text: 'haha' });
       });
 
+      it('routes steer chunks to their row after another steer moves it off the tail', () => {
+        const adapter = createAcpSessionNotificationAdapter(
+          [
+            {
+              id: 'steer-1',
+              role: 'user',
+              created: 123,
+              content: [{ type: 'text', text: 'hel' }],
+              metadata: { userVisible: true, agentVisible: true, steer: true },
+            },
+            {
+              id: 'steer-2',
+              role: 'user',
+              created: 124,
+              content: [{ type: 'text', text: 'second' }],
+              metadata: { userVisible: true, agentVisible: true, steer: true },
+            },
+          ],
+          new Map([['steer-1', 'hel']])
+        );
+
+        const messages = expectMessagesAndLocalSteerConfirmation(
+          adapter.apply(
+            acpUpdate({
+              sessionUpdate: 'user_message_chunk',
+              content: { type: 'text', text: 'lo' },
+              _meta: {
+                goose: {
+                  messageId: 'steer-1',
+                  steer: true,
+                },
+              },
+            } as SessionNotification['update'])
+          ),
+          'steer-1'
+        );
+
+        expect(messages).toHaveLength(2);
+        expect(firstContent(messages[0])).toMatchObject({ type: 'text', text: 'hello' });
+        expect(firstContent(messages[1])).toMatchObject({ type: 'text', text: 'second' });
+      });
+
       it('maps image and thinking chunks to existing message content shapes', () => {
         const imageAdapter = createAcpSessionNotificationAdapter();
 

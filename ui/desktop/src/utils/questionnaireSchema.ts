@@ -200,10 +200,6 @@ function parseOptionOf(
   };
 }
 
-function optionOfTitle(description: string | undefined): string | undefined {
-  return parseOptionOf(description)?.title;
-}
-
 function orderedPropertyKeys(schema: JsonSchema): string[] {
   const properties = schema.properties ?? {};
   const hinted = schema.propertyOrder ?? [];
@@ -491,7 +487,7 @@ export function questionnaireIsComplete(
   selected: readonly (readonly string[])[],
   other: readonly string[]
 ): boolean {
-  return questionnaire.questions.every((question, index) => {
+  return questionnaire.questions.every((_question, index) => {
     const chosen = selected[index] ?? [];
     const otherSelected = chosen.includes(OTHER_OPTION_LABEL);
     const picked = chosen.filter((label) => label !== OTHER_OPTION_LABEL);

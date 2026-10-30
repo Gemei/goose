@@ -379,8 +379,8 @@ pub async fn spawn_acp_server_in_process(
     disable_session_naming: bool,
 ) -> (DuplexTransport, JoinHandle<()>, Arc<PermissionManager>) {
     fs::create_dir_all(data_root).unwrap();
-    // TODO: Paths::in_state_dir is global, ignoring per-test data_root
-    fs::create_dir_all(Paths::in_state_dir("logs")).unwrap();
+    // TODO: the logs dir is global, ignoring per-test data_root
+    fs::create_dir_all(goose::logging::log_dir()).unwrap();
     let config_path = data_root.join(goose::config::base::CONFIG_YAML_NAME);
     if !config_path.exists() {
         fs::write(

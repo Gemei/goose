@@ -20,25 +20,28 @@ export function applyPermissionRequest(
   const identity = toolIdentity(request.toolCall);
   const prompt = permissionPrompt(request);
 
-  state.messages.push({
-    id: `acp_permission_${toolCallId}`,
-    role: 'assistant',
-    created: Math.floor(Date.now() / 1000),
-    content: [
-      {
-        type: 'actionRequired',
-        data: {
-          actionType: 'toolConfirmation',
-          generation,
-          id: toolCallId,
-          toolName: identity.toolName ?? request.toolCall.title ?? toolCallId,
-          arguments: rawInputToArguments(request.toolCall.rawInput),
-          ...(prompt ? { prompt } : {}),
+  state.messages = [
+    ...state.messages,
+    {
+      id: `acp_permission_${toolCallId}`,
+      role: 'assistant',
+      created: Math.floor(Date.now() / 1000),
+      content: [
+        {
+          type: 'actionRequired',
+          data: {
+            actionType: 'toolConfirmation',
+            generation,
+            id: toolCallId,
+            toolName: identity.toolName ?? request.toolCall.title ?? toolCallId,
+            arguments: rawInputToArguments(request.toolCall.rawInput),
+            ...(prompt ? { prompt } : {}),
+          },
         },
-      },
-    ],
-    metadata: { ...DEFAULT_VISIBLE_MESSAGE_METADATA },
-  });
+      ],
+      metadata: { ...DEFAULT_VISIBLE_MESSAGE_METADATA },
+    },
+  ];
 
   return messagesChange(state);
 }

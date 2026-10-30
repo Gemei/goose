@@ -151,12 +151,12 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn latest_llm_log_path() -> Option<PathBuf> {
-    let path = Paths::in_state_dir("logs").join("llm_request.0.jsonl");
+    let path = crate::logging::log_dir().join("llm_request.0.jsonl");
     path.exists().then_some(path)
 }
 
 pub fn recent_cli_log_paths() -> Vec<PathBuf> {
-    let component_dir = Paths::in_state_dir("logs").join("cli");
+    let component_dir = crate::logging::log_dir().join("cli");
     let mut paths = Vec::new();
 
     if let Ok(entries) = fs::read_dir(component_dir) {
@@ -187,7 +187,7 @@ pub fn recent_cli_log_paths() -> Vec<PathBuf> {
 }
 
 fn recent_llm_log_paths() -> Vec<PathBuf> {
-    let logs_dir = Paths::in_state_dir("logs");
+    let logs_dir = crate::logging::log_dir();
     let paths: Vec<_> = fs::read_dir(logs_dir)
         .ok()
         .into_iter()

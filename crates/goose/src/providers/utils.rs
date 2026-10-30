@@ -1,4 +1,4 @@
-use crate::config::paths::Paths;
+use crate::logging::log_dir;
 use anyhow::{anyhow, Result};
 use fs_err::File;
 use goose_providers::request_log::{install_logger, RequestLogHandle, RequestLogger};
@@ -65,7 +65,7 @@ pub struct RequestLog {
 
 impl RequestLog {
     pub fn new(logs_to_keep: usize) -> Result<Self> {
-        let logs_dir = Paths::in_state_dir("logs");
+        let logs_dir = log_dir();
         fs_err::create_dir_all(&logs_dir)?;
         Ok(Self { logs_to_keep })
     }
@@ -79,7 +79,7 @@ struct FileLogHandle {
 
 impl RequestLogger for RequestLog {
     fn start(&self) -> Result<Box<dyn RequestLogHandle>, Box<dyn Error + Send + Sync>> {
-        let logs_dir = Paths::in_state_dir("logs");
+        let logs_dir = log_dir();
         fs_err::create_dir_all(&logs_dir)?;
 
         let request_id = Uuid::new_v4();
@@ -117,7 +117,7 @@ impl FileLogHandle {
     fn finish(&mut self) -> Result<()> {
         if let Some(mut writer) = self.writer.take() {
             writer.flush()?;
-            let logs_dir = Paths::in_state_dir("logs");
+            let logs_dir = log_dir();
             let log_path = |i| logs_dir.join(format!("llm_request.{}.jsonl", i));
 
             if self.logs_to_keep == 0 {

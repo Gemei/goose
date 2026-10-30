@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Ana sayfaya git"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "sohbet yükleniyor... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Bağlantı kesildi. Yeniden bağlanılıyor…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Ne topluyoruz:"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, other {# mesaj gizlendi}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "Sohbet yükleniyor"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Model değişti: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (istenen)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Tümünü göster"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Tüm istemler varsayılanlara sıfırlandı"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "Çıkış"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Tam çıktıyı göster ({count} satır)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Araç Ayrıntıları"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "Ajan döngüsü"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Ir para o início"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "carregando a conversa... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Conexão perdida. Reconectando…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "O que recolhemos:"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, one {# mensagem oculta} other {# mensagens ocultas}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "O chat está carregando"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Modelo alterado: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (solicitado)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Mostrar tudo"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Todos os prompts repostos para as predefinições"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "Saída"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Mostrar saída completa ({count} linhas)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Detalhes da Ferramenta"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "Loop do agente"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

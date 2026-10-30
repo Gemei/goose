@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Aller à l'accueil"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "chargement de la conversation... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Connexion perdue. Reconnexion…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Ce que nous collectons :"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, one {# message masqué} other {# messages masqués}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "Chargement du chat"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Modèle modifié : {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (demandé)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Tout afficher"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Toutes les invites ont été réinitialisées aux valeurs par défaut"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "Sortie"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Afficher la sortie complète ({count} lignes)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Détails de l'outil"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "Boucle d’agent"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

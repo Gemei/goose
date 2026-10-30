@@ -44,10 +44,10 @@ export const DEFAULT_VISIBLE_MESSAGE_METADATA: Message['metadata'] = {
 };
 
 export function messagesChange(state: AdapterState): AcpChatStateChange[] {
-  // Pass the live array by reference: the store is the only consumer and it
-  // clones on write (applyChatStateChanges). Cloning here as well made every
-  // streamed chunk O(messages) twice, which turns session-load replay into
-  // O(n^2) on large sessions.
+  // Adapter code never mutates a message object or its array after emission
+  // (each update clones the touched message and rebuilds the array), so the
+  // store can adopt the live array by reference with no per-notification
+  // deep clone.
   return [{ type: 'messages', messages: state.messages }];
 }
 
@@ -103,10 +103,25 @@ function getInferenceMeta(inference: unknown): InferenceMetadata | undefined {
   };
 }
 
-export function applyInferenceMeta(message: Message, gooseMeta: GooseMessageMeta): void {
-  if (message.role === 'assistant' && gooseMeta.inference) {
-    message.metadata.inference = gooseMeta.inference;
+export function metadataWithInferenceMeta(
+  metadata: Message['metadata'],
+  role: Message['role'],
+  gooseMeta: GooseMessageMeta
+): Message['metadata'] {
+  if (role === 'assistant' && gooseMeta.inference) {
+    return { ...metadata, inference: gooseMeta.inference };
   }
+  return metadata;
+}
+
+export function withMessageAt(messages: Message[], index: number, next: Message): Message[] {
+  // An index equal to the array length appends; otherwise the slot is replaced.
+  if (index >= messages.length) {
+    return [...messages, next];
+  }
+  const rebuilt = messages.slice();
+  rebuilt[index] = next;
+  return rebuilt;
 }
 
 export function getGooseActiveRunId(update: { _meta?: unknown }): string | null | undefined {

@@ -15,7 +15,6 @@ import {
 import {
   type AcpChatStateChange,
   type AdapterState,
-  cloneMessage,
   getGooseActiveRunId,
   getGooseQueuedSteer,
 } from './adapter/shared';
@@ -40,7 +39,7 @@ export function createAcpSessionNotificationAdapter(
   localSteerTextByMessageId: Map<string, string> = new Map()
 ): AcpSessionNotificationAdapter {
   const state: AdapterState = {
-    messages: initialMessages.map(cloneMessage),
+    messages: initialMessages,
     localSteerTextByMessageId: new Map(localSteerTextByMessageId),
     toolCallStatesById: new Map(),
   };
@@ -65,7 +64,9 @@ export function createAcpSessionNotificationAdapter(
       return applyElicitationStatusToState(state, elicitationId, status);
     },
     getMessages() {
-      return state.messages.map(cloneMessage);
+      // Emitted message arrays are immutable (every adapter update replaces
+      // them wholesale), so the store can share this array without cloning.
+      return state.messages;
     },
   };
 }

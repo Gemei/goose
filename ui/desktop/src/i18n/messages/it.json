@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Vai alla home"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "caricamento della conversazione... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Connessione persa. Riconnessione…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Cosa raccogliamo:"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, one {# messaggio nascosto} other {# messaggi nascosti}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "Caricamento della chat"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Modello cambiato: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (richiesto)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Mostra tutto"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Tutti i prompt ripristinati ai valori predefiniti"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "Output"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Mostra l'output completo ({count} righe)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Dettagli dello strumento"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "Ciclo agente"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

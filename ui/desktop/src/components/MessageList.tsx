@@ -13,6 +13,7 @@ import { isEqual } from 'lodash';
 import { defineMessages, useIntl } from '../i18n';
 import GooseMessage from './GooseMessage';
 import UserMessage from './UserMessage';
+import { DeferHighlightContext } from './MarkdownContent';
 import {
   SystemNotificationInline,
   getInlineSystemNotification,
@@ -27,8 +28,6 @@ import {
   type NotificationEvent,
   type SystemNotificationContent,
 } from '../types/message';
-import LoadingGoose from './LoadingGoose';
-import { ChatState } from '../types/chatState';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import {
   deriveMessageRowContexts,
@@ -39,7 +38,20 @@ import {
 } from './messageRowContext';
 import { AppEvents } from '../constants/events';
 import { clearTranscriptHighlights, paintTranscriptHighlights } from '../utils/transcriptHighlight';
-import { cancelWheelSmoothing, prefersInstantScroll, smoothScrollTo } from '../utils/smoothScroll';
+import {
+  cancelWheelSmoothing,
+  endUserGesture,
+  isWheelGlideActive,
+  noteUserGesture,
+  noteUserInput,
+  prefersInstantScroll,
+  READING_SETTLE_MS,
+  shouldAnimateScroll,
+  smoothScrollTo,
+  userGestureRecent,
+  userInputRecent,
+} from '../utils/smoothScroll';
+import { logScroll, logScrollMark, logScrollThrottled } from '../utils/scrollDiagnostics';
 
 // Rejoin the live edge only when the user is actually at the bottom. A 200px
 // band kept follow on through wheel ticks, so streaming height growth snapped
@@ -49,15 +61,22 @@ const FOLLOW_RESUME_PX = 48;
 // After historyStart hits 0 every card stays in document flow so a wheel
 // tick never mounts GooseMessage. That load can take a few seconds.
 const HISTORY_TAIL = 32;
-const HISTORY_BATCH = 6;
-const HISTORY_BATCH_MS = 32;
 const LIVE_TAIL = 12;
+// Hydration batches size themselves from the measured cost of the previous
+// one so each reveal stays inside a single frame budget.
+const HISTORY_BATCH_MIN = 1;
+const HISTORY_BATCH_MAX = 16;
+const HYDRATE_BUDGET_MS = 24;
+const HYDRATE_RETRY_MS = 16;
+// While the user is mid-scroll the queue only progresses near the hydration
+// frontier: the cards being scrolled into exist only if it keeps mounting.
+const HYDRATE_QUIET_MS = 200;
+const HYDRATE_FRONTIER_VIEWPORTS = 3;
+// A reveal that costs more than this gets the next chunk halved; heavy
+// command/code cards can cost many times a text card.
+const REVEAL_BUDGET_MS = 32;
 
 const i18n = defineMessages({
-  loadingMessages: {
-    id: 'progressiveMessageList.loadingMessages',
-    defaultMessage: 'Loading messages... ({renderedCount}/{totalCount})',
-  },
   modelChanged: {
     id: 'messageList.modelChanged',
     defaultMessage: 'Model changed: {previousModel} → {currentModel}',
@@ -65,10 +84,6 @@ const i18n = defineMessages({
   requestedModel: {
     id: 'messageList.requestedModel',
     defaultMessage: '{model} (requested)',
-  },
-  loadingHistory: {
-    id: 'messageList.loadingHistory',
-    defaultMessage: 'Chat is loading',
   },
 });
 
@@ -104,6 +119,7 @@ interface MessageRowProps {
     retainedImages: ImageData[]
   ) => void;
   rowContext: MessageRowContext;
+  registerPreWarm?: (el: HTMLDivElement) => void;
   sessionId: string;
   submitElicitationResponse?: (
     elicitationId: string,
@@ -121,11 +137,20 @@ function MessageRowComponent({
   message,
   modelChangeMessage,
   onMessageUpdate,
+  registerPreWarm,
   rowContext,
   sessionId,
   submitElicitationResponse,
   toolNotifications,
 }: MessageRowProps) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!registerPreWarm) return;
+    const wrapper = wrapperRef.current;
+    if (wrapper) registerPreWarm(wrapper);
+  }, [registerPreWarm]);
+
   const notification = getSystemNotification(message);
 
   if (notification) {
@@ -134,7 +159,11 @@ function MessageRowComponent({
         className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} assistant`}
         data-testid="message-container"
         data-message-index={index}
-        style={{ contain: 'layout' }}
+        style={{
+          contain: 'layout',
+          contentVisibility: 'auto',
+          containIntrinsicSize: 'auto 160px',
+        }}
       >
         {renderSystemNotification(notification)}
       </div>
@@ -157,7 +186,12 @@ function MessageRowComponent({
         className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} ${isUser ? 'user' : 'assistant'} ${rowContext.isInToolCallChain ? 'in-chain' : ''}`}
         data-testid="message-container"
         data-message-index={index}
-        style={{ contain: 'layout' }}
+        ref={wrapperRef}
+        style={{
+          contain: 'layout',
+          contentVisibility: 'auto',
+          containIntrinsicSize: 'auto 160px',
+        }}
       >
         {isUser ? (
           !hasOnlyToolResponses && (
@@ -181,7 +215,35 @@ function MessageRowComponent({
   );
 }
 
-const MessageRow = memo(MessageRowComponent, isEqual);
+function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps) {
+  // Scalar props first, then per-field reference short-circuits that skip the
+  // deep walk whenever the identity already matches (settled rows, common case).
+  if (
+    prev.sessionId !== next.sessionId ||
+    prev.index !== next.index ||
+    prev.isUser !== next.isUser ||
+    prev.isStreaming !== next.isStreaming ||
+    prev.append !== next.append ||
+    prev.onMessageUpdate !== next.onMessageUpdate ||
+    prev.submitElicitationResponse !== next.submitElicitationResponse ||
+    prev.modelChangeMessage !== next.modelChangeMessage
+  ) {
+    return false;
+  }
+  if (prev.message !== next.message && !isEqual(prev.message, next.message)) return false;
+  if (prev.rowContext !== next.rowContext && !isEqual(prev.rowContext, next.rowContext)) {
+    return false;
+  }
+  if (
+    prev.toolNotifications !== next.toolNotifications &&
+    !isEqual(prev.toolNotifications, next.toolNotifications)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+const MessageRow = memo(MessageRowComponent, areMessageRowPropsEqual);
 
 interface MessageListProps {
   messages: Message[];
@@ -201,6 +263,8 @@ interface MessageListProps {
     retainedImages: ImageData[]
   ) => void;
   onRenderingComplete?: () => void;
+  /** Reports hydration progress 0..1 while rows mount; null once the session is settled. */
+  onHydrationProgress?: (progress: number | null) => void;
   /** Scroll this message into view. Used by transcript search. */
   focusedIndex?: number | null;
   /** Term to highlight inside the focused message. Empty skips the paint. */
@@ -231,6 +295,7 @@ interface SharedRowProps {
   sessionId: string;
   submitElicitationResponse?: MessageListProps['submitElicitationResponse'];
   toolCallNotifications: Map<string, NotificationEvent[]>;
+  registerPreWarm?: (el: HTMLDivElement) => void;
 }
 
 function buildVisibleRows({
@@ -241,6 +306,7 @@ function buildVisibleRows({
   isUserMessage,
   messages,
   onMessageUpdate,
+  registerPreWarm,
   renderMessage,
   sessionId,
   start,
@@ -293,6 +359,7 @@ function buildVisibleRows({
         message={message}
         modelChangeMessage={modelChangeMessage}
         onMessageUpdate={onMessageUpdate}
+        registerPreWarm={registerPreWarm}
         rowContext={rowContext}
         sessionId={sessionId}
         submitElicitationResponse={submitElicitationResponse}
@@ -344,6 +411,7 @@ function VirtualMessageList({
   isUserMessage,
   isStreamingMessage = false,
   onMessageUpdate,
+  onHydrationProgress,
   onRenderingComplete,
   renderMessage,
   submitElicitationResponse,
@@ -354,6 +422,13 @@ function VirtualMessageList({
 }: MessageListProps) {
   const intl = useIntl();
   const listRef = useRef<HTMLDivElement>(null);
+  const preWarmObserverRef = useRef<IntersectionObserver | null>(null);
+  const registerPreWarm = useMemo(
+    () => (element: HTMLDivElement) => {
+      preWarmObserverRef.current?.observe(element);
+    },
+    []
+  );
   const initialStart = initialHistoryStart(messages.length);
   const [historyStart, setHistoryStart] = useState(initialStart);
   const [historySettled, setHistorySettled] = useState(initialStart === 0);
@@ -362,36 +437,129 @@ function VirtualMessageList({
   const pendingScrollRef = useRef<number | null>(null);
   const smoothingRef = useRef(false);
   const cancelSmoothRef = useRef<(() => void) | null>(null);
+  const readingSettleRef = useRef(0);
+  const cancelReadingSettle = () => {
+    if (readingSettleRef.current) {
+      window.clearTimeout(readingSettleRef.current);
+      readingSettleRef.current = 0;
+    }
+  };
   const searchLockRef = useRef(false);
   const scrollTopRef = useRef(0);
+  // Cached scroll maximum. `read()` runs on every coalesced scroll frame and
+  // must not touch scrollHeight: that read forces pending content-visibility
+  // layout synchronously while the user is moving the viewport.
+  const maxScrollTopRef = useRef(0);
+  const historyStartRef = useRef(0);
+  const batchQueuedAtRef = useRef(0);
+  const batchQueuedSizeRef = useRef(1);
+  const overrunSkipsRef = useRef(0);
+  const lastBatchCostMsRef = useRef(-1);
   const loadingHistoryRef = useRef(false);
   const completedSessionRef = useRef<string | null>(null);
   const sessionRef = useRef(sessionId);
   const messagesLengthRef = useRef(messages.length);
   messagesLengthRef.current = messages.length;
 
+  const hasMessages = messages.length > 0;
+  const hydratedWithMessagesRef = useRef(hasMessages);
+
   const loadingHistory = historyStart > 0 || !historySettled;
   loadingHistoryRef.current = loadingHistory;
-
+  historyStartRef.current = historyStart;
   useEffect(() => {
-    if (sessionRef.current === sessionId) return;
-    sessionRef.current = sessionId;
-    const start = initialHistoryStart(messagesLengthRef.current);
-    setHistoryStart(start);
-    setHistorySettled(start === 0);
-    followRef.current = true;
-    positionedRef.current = false;
-    completedSessionRef.current = null;
-  }, [sessionId]);
+    logScrollMark('ml.loadingHistory', {
+      loading: loadingHistory,
+      historyStart,
+      sessionId,
+      messages: messages.length,
+    });
+  }, [loadingHistory, historyStart, sessionId, messages.length]);
+  useLayoutEffect(() => {
+    const resetHydration = () => {
+      const start = initialHistoryStart(messagesLengthRef.current);
+      logScrollMark('ml.resetHydration', { start, messages: messagesLengthRef.current, sessionId });
+      setHistoryStart(start);
+      setHistorySettled(start === 0);
+      followRef.current = true;
+      positionedRef.current = false;
+      completedSessionRef.current = null;
+    };
+
+    if (sessionRef.current !== sessionId) {
+      sessionRef.current = sessionId;
+      resetHydration();
+      hydratedWithMessagesRef.current =
+        hasMessages && initialHistoryStart(messagesLengthRef.current) > 0;
+      return;
+    }
+
+    // The list can mount while a session-load replay holds the transcript
+    // back (recipe sessions keep it rendered with zero messages). The full
+    // conversation then lands in one notify, so size the hydration from the
+    // real length here instead of a mount that saw nothing. Layout effect so
+    // the already-committed rows go hidden before the first paint.
+    if (hydratedWithMessagesRef.current !== hasMessages) {
+      hydratedWithMessagesRef.current = hasMessages;
+      resetHydration();
+      hydratedWithMessagesRef.current =
+        hasMessages && initialHistoryStart(messagesLengthRef.current) > 0;
+    }
+  }, [sessionId, hasMessages]);
 
   useEffect(() => {
     if (historyStart <= 0) return;
-    const timeout = window.setTimeout(() => {
-      startTransition(() => {
-        setHistoryStart((start) => Math.max(0, start - HISTORY_BATCH));
-      });
-    }, HISTORY_BATCH_MS);
-    return () => window.clearTimeout(timeout);
+    let cancelled = false;
+    let timer = 0;
+
+    // Size the next batch from the measured cost of the last one (ms per
+    // card) so each reveal stays inside the frame budget. Unknown cost
+    // starts small.
+    const nextBatchSize = () => {
+      const perCardMs =
+        lastBatchCostMsRef.current >= 0 && batchQueuedSizeRef.current > 0
+          ? Math.max(1, lastBatchCostMsRef.current / batchQueuedSizeRef.current)
+          : HYDRATE_BUDGET_MS / 2;
+      const size = Math.round(HYDRATE_BUDGET_MS / perCardMs);
+      return Math.min(HISTORY_BATCH_MAX, Math.max(HISTORY_BATCH_MIN, size));
+    };
+
+    // Near the hydration frontier the cards being scrolled into exist only
+    // if the queue keeps mounting, so scrolling up there does not pause it.
+    const canMount = () => {
+      if (followRef.current) return true;
+      const viewportEl = listRef.current?.closest('[data-radix-scroll-area-viewport]');
+      if (!(viewportEl instanceof HTMLElement)) return true;
+      if (viewportEl.scrollTop <= HYDRATE_FRONTIER_VIEWPORTS * viewportEl.clientHeight) {
+        return true;
+      }
+      return !userGestureRecent(HYDRATE_QUIET_MS);
+    };
+
+    const step = () => {
+      if (cancelled) return;
+      const lastCost = lastBatchCostMsRef.current;
+      if (lastCost >= 0 && lastCost > HYDRATE_RETRY_MS * 3 && overrunSkipsRef.current < 2) {
+        overrunSkipsRef.current += 1;
+      } else {
+        overrunSkipsRef.current = 0;
+        if (canMount()) {
+          const size = Math.min(nextBatchSize(), historyStartRef.current);
+          batchQueuedAtRef.current = performance.now();
+          batchQueuedSizeRef.current = size;
+          startTransition(() => {
+            setHistoryStart((start) => Math.max(0, start - size));
+          });
+        }
+      }
+      timer = window.setTimeout(step, HYDRATE_RETRY_MS);
+    };
+
+    timer = window.setTimeout(step, HYDRATE_RETRY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [historyStart]);
 
   useEffect(() => {
@@ -443,7 +611,12 @@ function VirtualMessageList({
     cancelSmoothRef.current = null;
     if (smooth) {
       smoothingRef.current = true;
-      cancelSmoothRef.current = smoothScrollTo(viewport, nextTop);
+      cancelSmoothRef.current = smoothScrollTo(viewport, nextTop, () => {
+        // Clear even if the tween never reaches its target: streaming growth
+        // can move the live edge past a fixed target mid-tween, and a stuck
+        // flag would block every later follow pin until the next gesture.
+        smoothingRef.current = false;
+      });
     } else {
       smoothingRef.current = false;
       viewport.scrollTop = nextTop;
@@ -452,31 +625,43 @@ function VirtualMessageList({
     scrollTopRef.current = viewport.scrollTop;
   };
 
+  useLayoutEffect(() => {
+    const viewport = listRef.current?.closest('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLElement)) return;
+    maxScrollTopRef.current = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    scrollTopRef.current = viewport.scrollTop;
+  }, [sessionId]);
+
   useEffect(() => {
     const viewport = viewportOf();
     if (!viewport) return;
 
-    const pinToEnd = () => {
-      cancelWheelSmoothing(viewport);
-      const end = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-      viewport.scrollTop = end;
-      pendingScrollRef.current = end;
-      scrollTopRef.current = viewport.scrollTop;
-    };
-
     const read = () => {
-      if (loadingHistoryRef.current) {
-        pinToEnd();
-        return;
-      }
-
       const nextTop = viewport.scrollTop;
-      const distance = viewport.scrollHeight - nextTop - viewport.clientHeight;
+      // Fall back to a measurement when the list is not scrollable yet or the
+      // observer has not reported; the cached path keeps scroll frames free
+      // of scrollHeight reads.
+      const maxScrollTop =
+        maxScrollTopRef.current > 0
+          ? maxScrollTopRef.current
+          : viewport.scrollHeight - viewport.clientHeight;
+      const distance = maxScrollTop - nextTop;
       const movedUp = nextTop < scrollTopRef.current - 1;
       const atLiveEdge = distance <= FOLLOW_RESUME_PX;
       const echoed =
         pendingScrollRef.current !== null && Math.abs(nextTop - pendingScrollRef.current) < 2;
       pendingScrollRef.current = null;
+
+      logScrollThrottled('ml.read', viewport, {
+        prevTop: scrollTopRef.current,
+        movedUp,
+        atLiveEdge,
+        echoed,
+        follow: followRef.current,
+        loading: loadingHistoryRef.current,
+        gesture: userGestureRecent(350),
+        input: userInputRecent(350),
+      });
 
       if (smoothingRef.current) {
         if (atLiveEdge || echoed) {
@@ -485,19 +670,54 @@ function VirtualMessageList({
         }
       } else if (!echoed) {
         searchLockRef.current = false;
-        if (movedUp && !atLiveEdge) {
-          followRef.current = false;
-        } else if (atLiveEdge) {
+        // Only wheel/pointer/touch input proves the user moved the view.
+        // Scroll anchoring (a row above converting from its 160px estimate,
+        // or a card growing after async markdown) also raises movedUp, and
+        // classifying that as a gesture blocked the streaming pins and
+        // detached follow with no user input.
+        if (movedUp && userInputRecent(350)) {
+          noteUserGesture();
+          if (loadingHistoryRef.current) {
+            // Hydration pins to the live edge every ~16ms batch; an in-band
+            // nudge must not be re-glued mid-drain or the user fights the
+            // follower for the whole load.
+            cancelReadingSettle();
+            followRef.current = false;
+          } else if (atLiveEdge) {
+            // In-band nudge: flushes keep re-gluing while the turn is
+            // actively emitting, but if the gesture settles parked above the
+            // exact bottom the user is reading — detach instead of gluing.
+            cancelReadingSettle();
+            readingSettleRef.current = window.setTimeout(() => {
+              readingSettleRef.current = 0;
+              const settled = viewportOf();
+              if (!settled) return;
+              if (userGestureRecent(80) || isWheelGlideActive(settled) || smoothingRef.current) {
+                return;
+              }
+              const settledDistance =
+                settled.scrollHeight - settled.scrollTop - settled.clientHeight;
+              if (settledDistance <= 2) {
+                endUserGesture();
+                followRef.current = true;
+                return;
+              }
+              followRef.current = false;
+            }, READING_SETTLE_MS);
+          } else {
+            cancelReadingSettle();
+            followRef.current = false;
+          }
+        } else if (distance <= 2) {
+          // Back on the exact bottom is a deliberate re-attach; above it
+          // (the resume band) only the settle path decides, so small
+          // adjustments while reading never drag the viewport to the tail.
+          cancelReadingSettle();
+          endUserGesture();
           followRef.current = true;
         }
       }
       scrollTopRef.current = nextTop;
-    };
-
-    const blockWhileLoading = (event: WheelEvent) => {
-      if (!loadingHistoryRef.current) return;
-      event.preventDefault();
-      pinToEnd();
     };
 
     read();
@@ -507,27 +727,250 @@ function VirtualMessageList({
       cancelSmoothRef.current = null;
       smoothingRef.current = false;
     };
-    viewport.addEventListener('scroll', read, { passive: true });
-    viewport.addEventListener('wheel', blockWhileLoading, { passive: false });
-    viewport.addEventListener('wheel', cancelSmooth, { passive: true });
-    viewport.addEventListener('pointerdown', cancelSmooth);
+    let scrollFrame = 0;
+    const queueRead = () => {
+      if (scrollFrame) return;
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = 0;
+        read();
+      });
+    };
+    // Wheel classification happens in read() (a moving wheel fires scroll
+    // events), so a tick that never leaves the live edge cannot hold the pin.
+    const onWheel = () => {
+      noteUserInput();
+      cancelSmooth();
+    };
+    const onGesture = () => {
+      noteUserGesture();
+      noteUserInput();
+    };
+    viewport.addEventListener('scroll', queueRead, { passive: true });
+    viewport.addEventListener('wheel', onWheel, { passive: true });
+    viewport.addEventListener('pointerdown', onGesture);
+    viewport.addEventListener('touchstart', onGesture, { passive: true });
     return () => {
-      viewport.removeEventListener('scroll', read);
-      viewport.removeEventListener('wheel', blockWhileLoading);
-      viewport.removeEventListener('wheel', cancelSmooth);
-      viewport.removeEventListener('pointerdown', cancelSmooth);
+      if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
+      cancelReadingSettle();
+      viewport.removeEventListener('scroll', queueRead);
+      viewport.removeEventListener('wheel', onWheel);
+      viewport.removeEventListener('pointerdown', onGesture);
+      viewport.removeEventListener('touchstart', onGesture);
+    };
+  }, [sessionId]);
+
+  // Pre-warm rows approaching the viewport so their first real style/layout
+  // happens during idle time instead of mid-scroll.
+  useEffect(() => {
+    if (prefersInstantScroll()) {
+      preWarmObserverRef.current = null;
+      return;
+    }
+    const viewport = viewportOf();
+    if (!viewport) return;
+
+    let queued = false;
+    let idleId: number | null = null;
+    let timerId: number | null = null;
+    const pending: HTMLElement[] = [];
+
+    let bundleRows = 4;
+    const flushPending = () => {
+      // Scrolling is a rendering-critical window: a bundle conversion here
+      // (the 12ms timer path) lands as one multi-card layout mid-gesture and
+      // shows up as the scroll sawtooth. Keep queueing instead; the pile
+      // drains fast once the gesture goes quiet.
+      if (userGestureRecent(120)) {
+        schedulePending();
+        return;
+      }
+      queued = false;
+      idleId = null;
+      timerId = null;
+      const count = Math.min(bundleRows, pending.length);
+      if (count === 0) return;
+      const started = performance.now();
+      for (const element of pending.splice(0, count)) {
+        element.style.contentVisibility = 'visible';
+      }
+      // Absorb + measure the conversion layout inside this idle slot so the
+      // bundle adapts to heavy cards instead of stampeding a scroll frame.
+      void viewport.scrollHeight;
+      logScroll('ml.prewarm', viewport, { converted: count, follow: followRef.current });
+      const costMs = performance.now() - started;
+      if (costMs > REVEAL_BUDGET_MS) {
+        bundleRows = Math.max(2, Math.round(bundleRows / 2));
+      } else if (costMs < REVEAL_BUDGET_MS / 3) {
+        bundleRows = Math.min(8, bundleRows + 2);
+      }
+      if (pending.length > 0) schedulePending();
+    };
+
+    const schedulePending = () => {
+      if (queued) return;
+      queued = true;
+      if (typeof window.requestIdleCallback === 'function') {
+        idleId = window.requestIdleCallback(() => {
+          flushPending();
+        });
+      } else {
+        timerId = window.setTimeout(flushPending, 12);
+      }
+    };
+
+    const cancelPending = () => {
+      if (!queued) return;
+      queued = false;
+      if (idleId !== null) window.cancelIdleCallback(idleId);
+      if (timerId !== null) window.clearTimeout(timerId);
+    };
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        let immediate = 0;
+        // Converting a heavy card is a layout; doing it inside the scroll
+        // frame is the sawtooth. While the user is moving the view, queue
+        // every row for the idle pass instead of revealing ahead of them:
+        // only rows the browser actually brings on screen pay layout now.
+        const gesturing = userGestureRecent(120) || isWheelGlideActive(viewport);
+        const immediateBudget = gesturing ? 0 : 4;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          io.unobserve(entry.target);
+          const element = entry.target as HTMLElement;
+          if (immediate < immediateBudget && !loadingHistoryRef.current) {
+            immediate += 1;
+            element.style.contentVisibility = 'visible';
+          } else {
+            pending.push(element);
+            schedulePending();
+          }
+        }
+      },
+      { root: viewport, rootMargin: '200% 0px 200% 0px' }
+    );
+    preWarmObserverRef.current = io;
+
+    return () => {
+      if (preWarmObserverRef.current === io) preWarmObserverRef.current = null;
+      cancelPending();
+      io.disconnect();
     };
   }, [sessionId]);
 
   useLayoutEffect(() => {
     const viewport = viewportOf();
     if (!viewport) return;
-    if (searchLockRef.current || smoothingRef.current) return;
-    const pinToLiveEdge = !positionedRef.current || loadingHistory || followRef.current;
-    if (!pinToLiveEdge) return;
-    scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
+    // A glide is the user moving the view; so is any real scroll movement
+    // within the last 120ms (trackpads have no glide to detect). Skipping the
+    // pin for that window keeps a streaming flush from yanking the user back
+    // down in the frame before follow detaches.
+    if (
+      searchLockRef.current ||
+      smoothingRef.current ||
+      isWheelGlideActive(viewport) ||
+      userGestureRecent(120)
+    ) {
+      logScrollMark('ml.pin.skip', {
+        reason: 'gesture',
+        search: searchLockRef.current,
+        smoothing: smoothingRef.current,
+        glide: isWheelGlideActive(viewport),
+        gesture: userGestureRecent(120),
+        loading: loadingHistoryRef.current,
+      });
+      return;
+    }
+    if (loadingHistoryRef.current && userInputRecent(120)) {
+      // During hydration a hydration batch pin can land between a wheel event
+      // and the coalesced read that classifies it, erasing the user's move
+      // before follow can detach. Yield the pin to fresh input and let the
+      // read decide; streaming pins are unaffected.
+      logScrollMark('ml.pin.skip', { reason: 'input-during-load' });
+      return;
+    }
+    const sinceQueuedMs = batchQueuedAtRef.current
+      ? Math.round(performance.now() - batchQueuedAtRef.current)
+      : 0;
+    if (loadingHistoryRef.current && sinceQueuedMs > 0 && sinceQueuedMs < 1000) {
+      lastBatchCostMsRef.current = sinceQueuedMs;
+    }
+    const pinToLiveEdge = !positionedRef.current || followRef.current;
+    if (!pinToLiveEdge) {
+      logScrollMark('ml.pin.skip', {
+        reason: 'not-following',
+        positioned: positionedRef.current,
+        loading: loadingHistoryRef.current,
+      });
+      return;
+    }
+    const target = viewport.scrollHeight - viewport.clientHeight;
+    scrollViewportTo(viewport, target);
     positionedRef.current = true;
+    logScroll('ml.pin', viewport, {
+      target,
+      loading: loadingHistoryRef.current,
+      follow: followRef.current,
+      messages: messages.length,
+    });
   }, [historyStart, loadingHistory, messages, isStreamingMessage]);
+
+  // The batch pin only runs on render. Once history settles, the idle reveal
+  // pass (and async markdown inside mounted rows) keeps growing earlier rows,
+  // so the live edge drifts below the viewport with no further render to pin
+  // it. Re-glue on content growth while the reader is still following.
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    const list = listRef.current;
+    const viewport = viewportOf();
+    if (!list || !viewport) return;
+
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      maxScrollTopRef.current = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      logScroll('ml.resize', viewport, {
+        loading: loadingHistoryRef.current,
+        follow: followRef.current,
+      });
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        if (loadingHistoryRef.current || !followRef.current) {
+          logScrollMark('ml.growth.skip', {
+            reason: loadingHistoryRef.current ? 'loading' : 'not-following',
+          });
+          return;
+        }
+        if (
+          smoothingRef.current ||
+          isWheelGlideActive(viewport) ||
+          userGestureRecent(120) ||
+          userInputRecent(120)
+        ) {
+          logScrollMark('ml.growth.skip', {
+            reason: 'gesture-or-smoothing',
+            smoothing: smoothingRef.current,
+            glide: isWheelGlideActive(viewport),
+            gesture: userGestureRecent(120),
+            input: userInputRecent(120),
+          });
+          return;
+        }
+        const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+        if (distance <= 2) {
+          logScrollMark('ml.growth.skip', { reason: 'at-edge', distance });
+          return;
+        }
+        scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight);
+        logScroll('ml.growth.pin', viewport, { distanceBefore: distance });
+      });
+    });
+    observer.observe(list);
+    return () => {
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [sessionId]);
 
   useLayoutEffect(() => {
     if (focusedIndex == null || focusedIndex < 0) {
@@ -549,6 +992,9 @@ function VirtualMessageList({
     if (!term || focusedIndex == null || focusedIndex < 0) return;
     const row = list.querySelector(`[data-message-index="${focusedIndex}"]`);
     if (!(row instanceof HTMLElement)) return;
+    // Far rows are content-visibility skipped; force full layout so the
+    // highlight paint and the centering measurement see real geometry.
+    row.style.contentVisibility = 'visible';
     const current = paintTranscriptHighlights(row, term, searchCaseSensitive, searchOccurrence);
     if (!searchLockRef.current) return;
     const viewport = viewportOf();
@@ -572,9 +1018,9 @@ function VirtualMessageList({
       const viewport = viewportOf();
       if (!viewport) return;
       searchLockRef.current = false;
-      const instant = prefersInstantScroll();
-      followRef.current = instant;
-      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight, true);
+      const animate = shouldAnimateScroll();
+      followRef.current = !animate;
+      scrollViewportTo(viewport, viewport.scrollHeight - viewport.clientHeight, animate);
     };
     window.addEventListener(AppEvents.SCROLL_CHAT_TO_BOTTOM, scrollToEnd);
     return () => window.removeEventListener(AppEvents.SCROLL_CHAT_TO_BOTTOM, scrollToEnd);
@@ -586,10 +1032,23 @@ function VirtualMessageList({
     if (completedSessionRef.current === completedKey) return;
     const timeout = window.setTimeout(() => {
       completedSessionRef.current = completedKey;
+      const viewport = viewportOf();
+      logScroll('ml.renderingComplete', viewport, {
+        messages: messages.length,
+        follow: followRef.current,
+      });
       onRenderingComplete?.();
     }, 50);
     return () => window.clearTimeout(timeout);
   }, [loadingHistory, messages.length, onRenderingComplete, sessionId]);
+
+  useEffect(() => {
+    onHydrationProgress?.(
+      loadingHistory && initialStart > 0
+        ? Math.max(0, Math.min(1, 1 - historyStart / initialStart))
+        : null
+    );
+  }, [loadingHistory, historyStart, initialStart, onHydrationProgress]);
 
   const liveStart = Math.max(historyStart, Math.max(0, messages.length - LIVE_TAIL));
   const historyLock = isStreamingMessage ? (messages[liveStart - 1] ?? liveStart) : messages;
@@ -604,6 +1063,7 @@ function VirtualMessageList({
         isUserMessage,
         messages,
         onMessageUpdate,
+        registerPreWarm,
         renderMessage,
         sessionId,
         start: historyStart,
@@ -638,6 +1098,7 @@ function VirtualMessageList({
         isUserMessage,
         messages,
         onMessageUpdate,
+        registerPreWarm,
         renderMessage,
         sessionId,
         start: liveStart,
@@ -652,6 +1113,7 @@ function VirtualMessageList({
       liveStart,
       messages,
       onMessageUpdate,
+      registerPreWarm,
       renderMessage,
       sessionId,
       submitElicitationResponse,
@@ -664,30 +1126,15 @@ function VirtualMessageList({
       ref={listRef}
       data-testid="virtual-message-list"
       className={loadingHistory ? undefined : 'chat-history-settled'}
-      style={{ overflowAnchor: 'auto' }}
+      style={{
+        overflowAnchor: 'auto',
+        visibility: loadingHistory ? 'hidden' : undefined,
+      }}
     >
-      {historyRows}
-      {liveRows}
-      {loadingHistory && (
-        <div
-          data-testid="history-loading-overlay"
-          className="flex justify-center py-2"
-          style={{
-            position: 'sticky',
-            bottom: 8,
-            zIndex: 20,
-            pointerEvents: 'none',
-            overflowAnchor: 'none',
-          }}
-        >
-          <div className="rounded-full border border-border-primary bg-background-primary/95 px-3 shadow-sm">
-            <LoadingGoose
-              chatState={ChatState.LoadingConversation}
-              message={intl.formatMessage(i18n.loadingHistory)}
-            />
-          </div>
-        </div>
-      )}
+      <DeferHighlightContext.Provider value={loadingHistory}>
+        {historyRows}
+        {liveRows}
+      </DeferHighlightContext.Provider>
     </div>
   );
 }
@@ -704,6 +1151,7 @@ function BatchedMessageList({
   renderMessage,
   isStreamingMessage = false,
   onMessageUpdate,
+  onHydrationProgress,
   onRenderingComplete,
   submitElicitationResponse,
   focusedIndex = null,
@@ -711,7 +1159,6 @@ function BatchedMessageList({
   searchCaseSensitive = false,
   searchOccurrence = 0,
 }: MessageListProps) {
-  const intl = useIntl();
   const [renderedCount, setRenderedCount] = useState(() =>
     initialRevealedCount(messages.length, showLoadingThreshold, batchSize)
   );
@@ -756,6 +1203,11 @@ function BatchedMessageList({
     return () => window.clearTimeout(timeout);
   }, [isLoading, messages.length, onRenderingComplete, sessionId]);
 
+  useEffect(() => {
+    onHydrationProgress?.(isLoading ? renderedCount / messages.length : null);
+    return () => onHydrationProgress?.(null);
+  }, [isLoading, renderedCount, messages.length, onHydrationProgress]);
+
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
@@ -764,6 +1216,7 @@ function BatchedMessageList({
     if (!term || focusedIndex == null || focusedIndex < 0) return;
     const row = list.querySelector(`[data-message-index="${focusedIndex}"]`);
     if (!(row instanceof HTMLElement)) return;
+    row.style.contentVisibility = 'visible';
     const current = paintTranscriptHighlights(row, term, searchCaseSensitive, searchOccurrence);
     const viewport = list.closest('[data-radix-scroll-area-viewport]');
     if (!(viewport instanceof HTMLElement)) return;
@@ -793,19 +1246,8 @@ function BatchedMessageList({
   });
 
   return (
-    <div ref={listRef}>
+    <div ref={listRef} style={{ visibility: isLoading ? 'hidden' : undefined }}>
       {rows}
-
-      {isLoading && (
-        <div className="flex flex-col items-center justify-center py-8">
-          <LoadingGoose
-            message={intl.formatMessage(i18n.loadingMessages, {
-              renderedCount,
-              totalCount: messages.length,
-            })}
-          />
-        </div>
-      )}
     </div>
   );
 }

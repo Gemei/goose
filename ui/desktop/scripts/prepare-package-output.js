@@ -11,18 +11,42 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+// Only Goose processes holding the packaging output dirs (out*) are stopped —
+// an installed copy the user is running, e.g. C:\Home\Tools\Goose, is never touched.
+function gooseOutputLockPids() {
+  const pattern = `${desktopRoot}\\out*`.replace(/'/g, `''`);
+  const ps =
+    `Get-CimInstance Win32_Process -Filter "Name='Goose.exe'" | ` +
+    `Where-Object { $_.ExecutablePath -like '${pattern}' } | ` +
+    `Select-Object -ExpandProperty ProcessId`;
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 15000,
+    })
+      .split(/\r?\n/)
+      .map(Number)
+      .filter((pid) => pid > 0);
+  } catch {
+    return [];
+  }
+}
+
 function stopGooseLockers() {
   if (process.platform !== 'win32') {
     return;
   }
 
-  try {
-    execFileSync('taskkill', ['/F', '/IM', 'Goose.exe', '/T'], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-  } catch {
-    // Goose was not running
+  for (const pid of gooseOutputLockPids()) {
+    try {
+      execFileSync('taskkill', ['/F', '/PID', String(pid), '/T'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } catch {
+      // already exited
+    }
   }
 }
 

@@ -40,8 +40,13 @@ interface StoreEntry extends AcpChatSessionSnapshot {
   pendingUserInputRequestIds: Set<string>;
   pendingLocalSteerMessageIds: Set<string>;
   preConfirmedSteerMessageIds: Set<string>;
+  // True between startSessionLoad and finish/failSessionLoad. The replay
+  // accumulates inside the adapter and is materialized once at finish;
+  // per-notification message adoption (and anything that would flip
+  // chatState mid-replay) stays held back until then.
+  loadInFlight: boolean;
   // Cached result of the last notify(); reused while a session-load replay is
-  // in flight so per-notification reads don't deep-clone the growing message
+  // in flight so per-notification reads don't touch the growing message
   // array (see applyAcpSessionNotification / getSnapshot).
   lastSnapshot?: AcpChatSessionSnapshot;
 }
@@ -129,9 +134,9 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
       return undefined;
     }
     // While a session-load replay is streaming in, serve the snapshot cached
-    // by the last notify() instead of deep-cloning the growing message array
-    // on every read (getSnapshot is called per replay notification).
-    if (entry.chatState === ChatState.LoadingConversation && entry.lastSnapshot) {
+    // by the last notify() instead of exposing the growing replay array on
+    // every read (getSnapshot is called per replay notification).
+    if (entry.loadInFlight && entry.lastSnapshot) {
       return entry.lastSnapshot;
     }
     return snapshotFromEntry(entry);
@@ -186,6 +191,7 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
       pendingUserInputRequestIds: new Set(),
       pendingLocalSteerMessageIds: new Set(),
       preConfirmedSteerMessageIds: new Set(),
+      loadInFlight: false,
       adapter: createAcpSessionNotificationAdapter(),
     };
     sessionsById.set(sessionId, entry);
@@ -213,6 +219,7 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
   const startSessionLoad: AcpChatSessionActions['startSessionLoad'] = (sessionId) => {
     const entry = getOrCreateEntry(sessionId);
     resetReplayState(entry);
+    entry.loadInFlight = true;
     entry.sessionLoadError = undefined;
     entry.progressMessage = undefined;
     entry.chatState = ChatState.LoadingConversation;
@@ -221,11 +228,12 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
 
   const finishSessionLoad: AcpChatSessionActions['finishSessionLoad'] = (sessionId, session) => {
     const entry = getOrCreateEntry(sessionId);
+    entry.loadInFlight = false;
     entry.session = session;
     entry.sessionLoadError = undefined;
     entry.progressMessage = undefined;
     // Materialize the replayed conversation in one pass (the per-notification
-    // fast path above skips message copies while loading).
+    // fast path above holds message adoption while the load is in flight).
     entry.messages = entry.adapter.getMessages();
     retainPendingLocalSteerMessageIds(entry);
     entry.chatState = entry.activePromptAttemptId ? ChatState.Streaming : ChatState.Idle;
@@ -237,6 +245,7 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     sessionLoadError
   ) => {
     const entry = getOrCreateEntry(sessionId);
+    entry.loadInFlight = false;
     entry.sessionLoadError = sessionLoadError;
     entry.progressMessage = undefined;
     entry.chatState = ChatState.Idle;
@@ -458,14 +467,13 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     }
     const changes = entry.adapter.apply(notification);
     // Session-load replay fast path: messages accumulate inside the adapter
-    // and are materialized once in finishSessionLoad. Copying them into the
-    // entry and re-notifying per replayed message is O(n^2) over the whole
-    // conversation and freezes the renderer on large sessions.
-    if (entry.chatState === ChatState.LoadingConversation && entry.lastSnapshot) {
-      applyChatStateChanges(
-        entry,
-        changes.filter((change) => change.type !== 'messages')
-      );
+    // and are materialized once in finishSessionLoad. Adopting the growing
+    // array per replayed message is O(n^2) over the whole conversation and
+    // freezes the renderer on large sessions. The loadInFlight flag (not
+    // chatState) is the gate, so a mid-replay permission/steer/state flip
+    // cannot leak the replay into per-chunk rendering.
+    if (entry.loadInFlight && entry.lastSnapshot) {
+      applyChatStateChanges(entry, changes);
       return entry.lastSnapshot;
     }
     applyChatStateChanges(entry, changes);
@@ -477,11 +485,8 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
       const entry = getOrCreateEntry(notification.sessionId);
       const changes = entry.adapter.applyGoose(notification);
       // Same session-load replay fast path as applyAcpSessionNotification.
-      if (entry.chatState === ChatState.LoadingConversation && entry.lastSnapshot) {
-        applyChatStateChanges(
-          entry,
-          changes.filter((change) => change.type !== 'messages')
-        );
+      if (entry.loadInFlight && entry.lastSnapshot) {
+        applyChatStateChanges(entry, changes);
         return entry.lastSnapshot;
       }
       applyChatStateChanges(entry, changes);
@@ -651,7 +656,16 @@ function applyChatStateChanges(entry: StoreEntry, changes: AcpChatStateChange[])
   for (const change of changes) {
     switch (change.type) {
       case 'messages':
-        entry.messages = cloneMessages(change.messages);
+        // While a load is in flight the replay accumulates inside the adapter
+        // and is materialized once in finishSessionLoad; direct callers
+        // (permission/elicitation cards) must not leak mid-replay rows either.
+        if (entry.loadInFlight) {
+          break;
+        }
+        // The adapter emits immutable arrays (a streamed chunk clones only the
+        // touched message), so adopt by reference instead of deep-cloning the
+        // whole session on every notification.
+        entry.messages = change.messages;
         retainPendingLocalSteerMessageIds(entry);
         break;
       case 'tokenState':
@@ -765,9 +779,13 @@ function confirmedLocalSteerTextByMessageId(entry: StoreEntry): Map<string, stri
 }
 
 function snapshotFromEntry(entry: StoreEntry): AcpChatSessionSnapshot {
+  // Message arrays are shared by reference: snapshot consumers treat them as
+  // immutable, and the store only ever swaps entry.messages for a new array.
+  // Deep-cloning here made every notify() O(messages) and destroyed row memo
+  // identity, forcing deep-equality walks over every card per streamed chunk.
   return {
     session: entry.session,
-    messages: cloneMessages(entry.messages),
+    messages: entry.messages,
     tokenState: { ...entry.tokenState },
     notifications: [...entry.notifications],
     progressMessage: entry.progressMessage,

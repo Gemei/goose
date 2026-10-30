@@ -4,6 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 import type { ImageData, Message, MessageContent } from '../types/message';
 import { IntlTestWrapper } from '../i18n/test-utils';
 import MessageList from './MessageList';
+import { endUserGesture, endUserInput } from '../utils/smoothScroll';
 
 const renderCounts = vi.hoisted(() => new Map<string, number>());
 const messageUpdateCallbacks = vi.hoisted(
@@ -256,6 +257,12 @@ describe('MessageList batching', () => {
 });
 
 describe('MessageList virtualization', () => {
+  beforeEach(() => {
+    // Gesture/input clocks are module state shared across tests in this file.
+    endUserGesture();
+    endUserInput();
+  });
+
   const messages = Array.from({ length: 80 }, (_, index) =>
     message(`assistant-${index}`, 'assistant', [{ type: 'text', text: `Message ${index}` }])
   );
@@ -369,7 +376,74 @@ describe('MessageList virtualization', () => {
     expect(viewport.scrollTop).toBeGreaterThan(bottomBeforeReply);
   });
 
-  it('does not snap back to the tail after the user scrolls up during a new reply', () => {
+  it('re-pins the live edge when rows grow after the load settles', async () => {
+    const resizeCallbacks: Array<() => void> = [];
+    class TestResizeObserver {
+      constructor(private readonly callback: (entries: unknown[], observer: unknown) => void) {
+        resizeCallbacks.push(() => this.callback([], this));
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    const original = window.ResizeObserver;
+    window.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
+    if (typeof window.requestAnimationFrame !== 'function') {
+      window.requestAnimationFrame = ((cb: (ts: number) => void) =>
+        window.setTimeout(
+          () => cb(performance.now()),
+          16
+        )) as unknown as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = ((id: number) =>
+        window.clearTimeout(id)) as unknown as typeof window.cancelAnimationFrame;
+    }
+
+    try {
+      const { container } = render(
+        <div data-radix-scroll-area-viewport data-testid="viewport">
+          <IntlTestWrapper>
+            <MessageList
+              messages={messages}
+              sessionId="test-session"
+              append={append}
+              isUserMessage={isUserMessage}
+              showLoadingThreshold={50}
+            />
+          </IntlTestWrapper>
+        </div>
+      );
+      const viewport = container.querySelector('[data-radix-scroll-area-viewport]');
+      if (!(viewport instanceof HTMLElement)) throw new Error('missing viewport');
+      Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 400 });
+      let scrollHeight = 12800;
+      Object.defineProperty(viewport, 'scrollHeight', {
+        configurable: true,
+        get: () => scrollHeight,
+      });
+
+      await act(async () => {
+        viewport.scrollTop = scrollHeight - viewport.clientHeight;
+        viewport.dispatchEvent(new Event('scroll'));
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+
+      // After hydration settles the idle reveal pass converts earlier rows
+      // from their 160px content-visibility estimate. The transcript grows
+      // with no render and no batch pin; the growth pin must keep the reader
+      // glued to the live edge instead of stranding them above it.
+      scrollHeight = 13600;
+      await act(async () => {
+        for (const fire of resizeCallbacks) fire();
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      });
+
+      expect(viewport.scrollTop).toBe(scrollHeight - viewport.clientHeight);
+    } finally {
+      window.ResizeObserver = original;
+    }
+  });
+
+  it('does not snap back to the tail after the user scrolls up during a new reply', async () => {
     const { container, rerender } = render(
       <div data-radix-scroll-area-viewport data-testid="viewport">
         <IntlTestWrapper>
@@ -392,14 +466,19 @@ describe('MessageList virtualization', () => {
       get: () => scrollHeight,
     });
 
-    act(() => {
+    await act(async () => {
       viewport.scrollTop = scrollHeight - viewport.clientHeight;
       viewport.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     });
     const afterScrollUp = scrollHeight - viewport.clientHeight - 80;
-    act(() => {
+    await act(async () => {
+      viewport.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true })
+      );
       viewport.scrollTop = afterScrollUp;
       viewport.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     });
 
     scrollHeight = 13200;
@@ -425,7 +504,7 @@ describe('MessageList virtualization', () => {
     expect(viewport.scrollTop).toBeLessThan(scrollHeight - viewport.clientHeight - 1);
   });
 
-  it('rejoins the tail after scrolling back to the live edge', () => {
+  it('rejoins the tail after scrolling back to the live edge', async () => {
     const { container, rerender } = render(
       <div data-radix-scroll-area-viewport data-testid="viewport">
         <IntlTestWrapper>
@@ -448,17 +527,20 @@ describe('MessageList virtualization', () => {
       get: () => scrollHeight,
     });
 
-    act(() => {
+    await act(async () => {
       viewport.scrollTop = scrollHeight - viewport.clientHeight;
       viewport.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     });
-    act(() => {
+    await act(async () => {
       viewport.scrollTop = 120;
       viewport.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     });
-    act(() => {
+    await act(async () => {
       viewport.scrollTop = scrollHeight - viewport.clientHeight;
       viewport.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     });
 
     scrollHeight = 13200;
@@ -482,6 +564,96 @@ describe('MessageList virtualization', () => {
 
     expect(screen.queryByText('assistant-80')).not.toBeNull();
     expect(viewport.scrollTop).toBe(scrollHeight - viewport.clientHeight);
+  });
+
+  it('detaches follow when an in-band nudge settles above the bottom', async () => {
+    const { container, rerender } = render(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <MessageList
+            messages={messages}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+    const viewport = container.querySelector('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLElement)) throw new Error('missing viewport');
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 400 });
+    let scrollHeight = 12800;
+    Object.defineProperty(viewport, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+
+    const settleAtBottom = () =>
+      act(async () => {
+        viewport.scrollTop = scrollHeight - viewport.clientHeight;
+        viewport.dispatchEvent(new Event('scroll'));
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+
+    await settleAtBottom();
+    // A few px up, still inside the resume band: while the gesture is fresh
+    // flushes may re-glue; only the settle decides, and it finds the user
+    // parked 20px above the bottom.
+    await act(async () => {
+      viewport.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -20, bubbles: true, cancelable: true })
+      );
+      viewport.scrollTop = scrollHeight - viewport.clientHeight - 20;
+      viewport.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    // Settled reading: growth must not yank the viewport to the tail.
+    scrollHeight = 13200;
+    const withReply = [
+      ...messages,
+      message('assistant-80', 'assistant', [{ type: 'text', text: 'Message 80' }]),
+    ];
+    rerender(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <MessageList
+            messages={withReply}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+    expect(viewport.scrollTop).toBe(12380);
+
+    // Returning to the exact bottom re-attaches; the next flush glues.
+    await settleAtBottom();
+    scrollHeight = 13400;
+    const withReply2 = [
+      ...withReply,
+      message('assistant-81', 'assistant', [{ type: 'text', text: 'Message 81' }]),
+    ];
+    rerender(
+      <div data-radix-scroll-area-viewport data-testid="viewport">
+        <IntlTestWrapper>
+          <MessageList
+            messages={withReply2}
+            sessionId="test-session"
+            append={append}
+            isUserMessage={isUserMessage}
+            showLoadingThreshold={50}
+          />
+        </IntlTestWrapper>
+      </div>
+    );
+    expect(viewport.scrollTop).toBe(13000);
   });
 
   it('mounts the tail when asked to scroll to the end', () => {

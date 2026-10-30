@@ -1,6 +1,6 @@
 import type { GooseSessionNotification_unstable } from '@aaif/goose-acp-client';
-import type { MessageUsage } from '../../types/message';
-import { type AcpChatStateChange, type AdapterState, messagesChange } from './shared';
+import type { Message, MessageUsage } from '../../types/message';
+import { type AcpChatStateChange, type AdapterState, messagesChange, withMessageAt } from './shared';
 
 export function applyGooseSessionNotification(
   state: AdapterState,
@@ -43,7 +43,7 @@ function applyStatusMessage(
     return [{ type: 'progressMessage', message: update.status.message }];
   }
 
-  state.messages.push({
+  const statusMessage: Message = {
     id: `acp_status_${sessionId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
     role: 'assistant',
     created: Math.floor(Date.now() / 1000),
@@ -58,8 +58,9 @@ function applyStatusMessage(
       userVisible: true,
       agentVisible: false,
     },
-  });
+  };
 
+  state.messages = [...state.messages, statusMessage];
   return messagesChange(state);
 }
 
@@ -70,22 +71,23 @@ function applyMessageUsage(
   // Live tool-call turns carry a server-side id the client never saw, so an
   // id miss falls back to the most recent assistant message with provider
   // content - skipping client-made rows (approval cards, status notices).
-  const byId = update.messageId
-    ? [...state.messages].reverse().find((message) => message.id === update.messageId)
-    : undefined;
-  const target =
-    byId ??
-    [...state.messages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === 'assistant' &&
-          message.content.some(
-            (content) => content.type !== 'actionRequired' && content.type !== 'systemNotification'
-          )
-      );
+  const byIndex = findLastMessageIndex(state, (message) =>
+    update.messageId ? message.id === update.messageId : false
+  );
+  const targetIndex =
+    byIndex >= 0
+      ? byIndex
+      : findLastMessageIndex(
+          state,
+          (message) =>
+            message.role === 'assistant' &&
+            message.content.some(
+              (content) =>
+                content.type !== 'actionRequired' && content.type !== 'systemNotification'
+            )
+        );
 
-  if (!target) {
+  if (targetIndex === -1) {
     return [];
   }
 
@@ -102,6 +104,22 @@ function applyMessageUsage(
     isCompaction: update.usage.isCompaction,
   };
 
-  target.metadata = { ...target.metadata, usage };
+  const target = state.messages[targetIndex];
+  state.messages = withMessageAt(state.messages, targetIndex, {
+    ...target,
+    metadata: { ...target.metadata, usage },
+  });
   return messagesChange(state);
+}
+
+function findLastMessageIndex(
+  state: AdapterState,
+  predicate: (message: Message) => boolean
+): number {
+  for (let index = state.messages.length - 1; index >= 0; index--) {
+    if (predicate(state.messages[index])) {
+      return index;
+    }
+  }
+  return -1;
 }

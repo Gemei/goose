@@ -6,6 +6,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import SuspenseLoader from './suspense-loader';
 import { applyThemeTokens } from './theme/theme-tokens';
 import { currentLocale, currentMessageLocale, loadMessages } from './i18n';
+import { configureScrollDiagnostics } from './utils/scrollDiagnostics';
+import { configureScrollAnimations } from './utils/smoothScroll';
 
 // Apply theme tokens to :root before first paint.
 applyThemeTokens();
@@ -27,7 +29,15 @@ function handleIntlError(err: { code: string; message?: string }) {
 }
 
 (async () => {
-  const messages = await loadMessages(currentMessageLocale);
+  const [messages, debugLogging, scrollAnimations] = await Promise.all([
+    loadMessages(currentMessageLocale),
+    window.electron.getSetting('debugLogging').catch(() => false),
+    window.electron.getSetting('scrollAnimations').catch(() => false),
+  ]);
+  // Diagnostics stay off until the user opts in from Settings -> App -> Debug.
+  configureScrollDiagnostics(Boolean(debugLogging));
+  // Scroll animations are off by default; the setting opts in.
+  configureScrollAnimations(scrollAnimations === true);
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

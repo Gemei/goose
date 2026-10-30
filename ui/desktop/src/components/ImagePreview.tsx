@@ -42,6 +42,8 @@ export default function ImagePreview({ src }: ImagePreviewProps) {
       <img
         src={src}
         alt={intl.formatMessage(i18n.altText)}
+        loading="lazy"
+        decoding="async"
         onError={() => setError(true)}
         onClick={() => setIsExpanded(!isExpanded)}
         className={`rounded border border-border-primary cursor-pointer hover:border-border-primary transition-all ${

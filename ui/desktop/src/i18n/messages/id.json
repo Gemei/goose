@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Ke beranda"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "memuat percakapan... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Koneksi terputus. Menghubungkan kembali…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Apa yang kami kumpulkan:"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, other {# pesan disembunyikan}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "Chat sedang dimuat"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Model diubah: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (diminta)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Tampilkan semua"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Semua prompt disetel ulang ke default"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "Keluaran"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Tampilkan keluaran lengkap ({count} baris)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Detail Alat"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "Loop agen"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

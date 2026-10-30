@@ -5,53 +5,64 @@ import type {
 } from '@agentclientprotocol/sdk';
 import type { Message } from '../../types/message';
 import type { ContentBlock as GooseContentBlock } from '../../types/message';
-import { findActiveMessageById, findMessageForChunk } from './messages';
+import { findActiveMessageById, findMessageForChunk, type MessageLocation } from './messages';
 import { toolNotificationChange } from './toolNotifications';
 import {
   type AcpChatStateChange,
   type AdapterState,
-  applyInferenceMeta,
   DEFAULT_VISIBLE_MESSAGE_METADATA,
   type GooseMessageMeta,
   getGooseMessageMeta,
   isRecord,
   messagesChange,
+  metadataWithInferenceMeta,
   rawInputToArguments,
   toolIdentity,
   type ToolIdentity,
   type ToolCallState,
+  withMessageAt,
 } from './shared';
 
 export function applyToolCall(state: AdapterState, update: ToolCall): AcpChatStateChange[] {
   updateToolCallState(state, update);
 
   const gooseMeta = getGooseMessageMeta(update);
-  const message = getOrCreateAssistantMessageForUpdate(state, gooseMeta);
-  applyInferenceMeta(message, gooseMeta);
+  const located = locateAssistantMessageForUpdate(state, gooseMeta);
+  const message: Message = {
+    ...located.message,
+    metadata: metadataWithInferenceMeta(located.message.metadata, 'assistant', gooseMeta),
+  };
 
   if (
     message.content.some(
       (content) => content.type === 'toolRequest' && content.id === update.toolCallId
     )
   ) {
+    state.messages = withMessageAt(state.messages, located.index, message);
     return messagesChange(state);
   }
 
   const identity = toolIdentity(update);
   const metadata = toolRequestMetadata(update, identity);
 
-  message.content.push({
-    type: 'toolRequest',
-    id: update.toolCallId,
-    toolCall: {
-      status: 'success',
-      value: {
-        name: identity.toolName ?? update.title,
-        arguments: rawInputToArguments(update.rawInput),
+  state.messages = withMessageAt(state.messages, located.index, {
+    ...message,
+    content: [
+      ...message.content,
+      {
+        type: 'toolRequest',
+        id: update.toolCallId,
+        toolCall: {
+          status: 'success',
+          value: {
+            name: identity.toolName ?? update.title,
+            arguments: rawInputToArguments(update.rawInput),
+          },
+        },
+        ...(metadata ? { metadata } : {}),
+        ...(update._meta ? { _meta: update._meta } : {}),
       },
-    },
-    ...(metadata ? { metadata } : {}),
-    ...(update._meta ? { _meta: update._meta } : {}),
+    ],
   });
 
   return messagesChange(state);
@@ -75,26 +86,92 @@ export function applyToolCallUpdate(
   }
 
   const gooseMeta = getGooseMessageMeta(update);
-  const message = getOrCreateToolResponseMessageForUpdate(state, gooseMeta);
+  const locate = locateToolResponseMessageForUpdate(state, gooseMeta);
   const identity = toolIdentity(update);
   const metadata = toolResponseMetadata(toolCallState, identity);
 
-  message.content.push({
-    type: 'toolResponse',
-    id: update.toolCallId,
-    toolResult: {
-      status: 'success',
-      value: toolResultValue(
-        toolCallState,
-        toolResultMetadata(update),
-        toolCallState.status === 'failed'
-      ),
-    },
-    ...(metadata ? { metadata } : {}),
+  state.messages = withMessageAt(state.messages, locate.index, {
+    ...locate.message,
+    content: [
+      ...locate.message.content,
+      {
+        type: 'toolResponse',
+        id: update.toolCallId,
+        toolResult: {
+          status: 'success',
+          value: toolResultValue(
+            toolCallState,
+            toolResultMetadata(update),
+            toolCallState.status === 'failed'
+          ),
+        },
+        ...(metadata ? { metadata } : {}),
+      },
+    ],
   });
 
   state.toolCallStatesById.delete(update.toolCallId);
   return messagesChange(state);
+}
+
+function locateAssistantMessageForUpdate(
+  state: AdapterState,
+  gooseMeta: GooseMessageMeta
+): MessageLocation {
+  const existing = findMessageForChunk(
+    state,
+    'assistant',
+    gooseMeta.messageId,
+    gooseMeta.created,
+    gooseMeta.steer
+  );
+  if (existing) {
+    let message = existing.message;
+    if (gooseMeta.operationLogs) {
+      message = {
+        ...message,
+        metadata: { ...message.metadata, operationLogs: gooseMeta.operationLogs },
+      };
+    }
+    return { message, index: existing.index };
+  }
+
+  return {
+    message: {
+      ...(gooseMeta.messageId ? { id: gooseMeta.messageId } : {}),
+      role: 'assistant',
+      created: gooseMeta.created ?? Math.floor(Date.now() / 1000),
+      content: [],
+      metadata: {
+        ...DEFAULT_VISIBLE_MESSAGE_METADATA,
+        ...(gooseMeta.operationLogs ? { operationLogs: gooseMeta.operationLogs } : {}),
+      },
+    },
+    index: state.messages.length,
+  };
+}
+
+function locateToolResponseMessageForUpdate(
+  state: AdapterState,
+  gooseMeta: GooseMessageMeta
+): MessageLocation {
+  if (gooseMeta.messageId) {
+    const existing = findActiveMessageById(state, 'user', gooseMeta.messageId);
+    if (existing) {
+      return { message: existing.message, index: existing.index };
+    }
+  }
+
+  return {
+    message: {
+      ...(gooseMeta.messageId ? { id: gooseMeta.messageId } : {}),
+      role: 'user',
+      created: gooseMeta.created ?? Math.floor(Date.now() / 1000),
+      content: [],
+      metadata: { ...DEFAULT_VISIBLE_MESSAGE_METADATA },
+    },
+    index: state.messages.length,
+  };
 }
 
 function updateToolCallState(
@@ -112,54 +189,6 @@ function mergeToolCallState(
 ): ToolCallState {
   const { _meta: _ignoredMeta, ...toolCallStateUpdate } = update;
   return { ...previous, ...toolCallStateUpdate };
-}
-
-function getOrCreateAssistantMessageForUpdate(
-  state: AdapterState,
-  gooseMeta: GooseMessageMeta
-): Message {
-  const existing = findMessageForChunk(state, 'assistant', gooseMeta.messageId, gooseMeta.created);
-  if (existing) {
-    if (gooseMeta.operationLogs) {
-      existing.metadata.operationLogs = gooseMeta.operationLogs;
-    }
-    return existing;
-  }
-
-  const message: Message = {
-    ...(gooseMeta.messageId ? { id: gooseMeta.messageId } : {}),
-    role: 'assistant',
-    created: gooseMeta.created ?? Math.floor(Date.now() / 1000),
-    content: [],
-    metadata: {
-      ...DEFAULT_VISIBLE_MESSAGE_METADATA,
-      ...(gooseMeta.operationLogs ? { operationLogs: gooseMeta.operationLogs } : {}),
-    },
-  };
-  state.messages.push(message);
-  return message;
-}
-
-function getOrCreateToolResponseMessageForUpdate(
-  state: AdapterState,
-  gooseMeta: GooseMessageMeta
-): Message {
-  if (gooseMeta.messageId) {
-    const existing = findActiveMessageById(state, 'user', gooseMeta.messageId);
-    if (existing) {
-      return existing;
-    }
-  }
-
-  const message: Message = {
-    ...(gooseMeta.messageId ? { id: gooseMeta.messageId } : {}),
-    role: 'user',
-    created: gooseMeta.created ?? Math.floor(Date.now() / 1000),
-    content: [],
-    metadata: { ...DEFAULT_VISIBLE_MESSAGE_METADATA },
-  };
-  state.messages.push(message);
-  return message;
 }
 
 function hasToolResponse(state: AdapterState, toolCallId: string): boolean {

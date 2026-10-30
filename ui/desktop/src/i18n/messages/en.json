@@ -152,6 +152,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Go home"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "loading conversation... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Connection lost. Reconnecting…"
   },
@@ -2013,7 +2016,7 @@
     "defaultMessage": "Failed to Open Link"
   },
   "markdownContent.noApplicationFound": {
-    "defaultMessage": "No application found to open this link."
+    "defaultMessage": "No application found to open a link."
   },
   "mcpAppRenderer.appFallbackTitle": {
     "defaultMessage": "App"
@@ -2072,20 +2075,11 @@
   "messageCopyLink.copy": {
     "defaultMessage": "Copy"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count,plural,one{# message hidden} other{# messages hidden}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "Chat is loading"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Model changed: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (requested)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Show all"
   },
   "messageQueue.cancel": {
     "defaultMessage": "Cancel"
@@ -2728,12 +2722,6 @@
   },
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "What we collect:"
-  },
-  "progressiveMessageList.loadingMessages": {
-    "defaultMessage": "Loading messages... ({renderedCount}/{totalCount})"
-  },
-  "progressiveMessageList.modelChanged": {
-    "defaultMessage": "Model changed: {previousModel} → {currentModel}"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "All prompts reset to defaults"
@@ -4151,6 +4139,18 @@
   "settings.costTracking.title": {
     "defaultMessage": "Cost Tracking"
   },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
   "settings.dockIcon.description": {
     "defaultMessage": "Show goose in the dock"
   },
@@ -4288,6 +4288,12 @@
   },
   "settings.preventSleep.title": {
     "defaultMessage": "Prevent Sleep"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   },
   "settings.theme.description": {
     "defaultMessage": "Customize the look and feel of goose"
@@ -4717,6 +4723,9 @@
   },
   "toolCallWithResponse.output": {
     "defaultMessage": "Output"
+  },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Show full output ({count} lines)"
   },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Tool Details"

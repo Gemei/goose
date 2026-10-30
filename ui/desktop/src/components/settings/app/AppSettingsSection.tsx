@@ -21,12 +21,20 @@ import BlockLogoWhite from './icons/block-lockup_white.png';
 import TelemetrySettings from './TelemetrySettings';
 import { trackSettingToggled } from '../../../utils/analytics';
 import type { LanguageSetting } from '../../../utils/settings';
+import { configureScrollDiagnostics } from '../../../utils/scrollDiagnostics';
+import { configureScrollAnimations } from '../../../utils/smoothScroll';
 
 const i18n = defineMessages({
   appearanceTitle: { id: 'settings.appearance.title', defaultMessage: 'Appearance' },
   appearanceDesc: {
     id: 'settings.appearance.description',
     defaultMessage: 'Configure how goose appears on your system',
+  },
+  scrollAnimations: { id: 'settings.scrollAnimations.title', defaultMessage: 'Scroll animations' },
+  scrollAnimationsDesc: {
+    id: 'settings.scrollAnimations.description',
+    defaultMessage:
+      'Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled.',
   },
   notifications: { id: 'settings.notifications.title', defaultMessage: 'Notifications' },
   notificationsDesc: {
@@ -107,6 +115,17 @@ const i18n = defineMessages({
   reportBug: { id: 'settings.help.reportBug', defaultMessage: 'Report a Bug' },
   requestFeature: { id: 'settings.help.requestFeature', defaultMessage: 'Request a Feature' },
   versionTitle: { id: 'settings.version.title', defaultMessage: 'Version' },
+  debugTitle: { id: 'settings.debug.title', defaultMessage: 'Debug' },
+  debugDesc: {
+    id: 'settings.debug.description',
+    defaultMessage: 'Diagnostic tools for troubleshooting goose',
+  },
+  debugLogging: { id: 'settings.debug.logging.title', defaultMessage: 'Debug logging' },
+  debugLoggingDesc: {
+    id: 'settings.debug.logging.description',
+    defaultMessage:
+      'Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem.',
+  },
   updatesTitle: { id: 'settings.updates.title', defaultMessage: 'Updates' },
   updatesDesc: {
     id: 'settings.updates.description',
@@ -192,6 +211,8 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
   const [isMacOS, setIsMacOS] = useState(false);
   const [isDockSwitchDisabled, setIsDockSwitchDisabled] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [scrollAnimations, setScrollAnimations] = useState(false);
+  const [debugLogging, setDebugLogging] = useState(false);
   const [showPricing, setShowPricing] = useState(true);
   const [language, setLanguage] = useState<LanguageSetting>('system');
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -221,6 +242,15 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
   useEffect(() => {
     window.electron.getSetting('showPricing').then(setShowPricing);
     window.electron.getSetting('language').then((value) => setLanguage(value ?? 'system'));
+    window.electron.getSetting('scrollAnimations').then((value) => {
+      const enabled = value === true;
+      setScrollAnimations(enabled);
+      configureScrollAnimations(enabled);
+    });
+    window.electron.getSetting('debugLogging').then((value) => {
+      setDebugLogging(!!value);
+      configureScrollDiagnostics(!!value);
+    });
   }, []);
 
   useEffect(() => {
@@ -330,6 +360,20 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
     trackSettingToggled('cost_tracking', checked);
     // Trigger event for other components
     window.dispatchEvent(new CustomEvent('showPricingChanged'));
+  };
+
+  const handleScrollAnimationsToggle = async (checked: boolean) => {
+    setScrollAnimations(checked);
+    configureScrollAnimations(checked);
+    await window.electron.setSetting('scrollAnimations', checked);
+    trackSettingToggled('scroll_animations', checked);
+  };
+
+  const handleDebugLoggingToggle = async (checked: boolean) => {
+    setDebugLogging(checked);
+    configureScrollDiagnostics(checked);
+    await window.electron.setSetting('debugLogging', checked);
+    trackSettingToggled('debug_logging', checked);
   };
 
   const handleLanguageChange = async (value: string) => {
@@ -501,6 +545,24 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
               </div>
             </div>
           )}
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-text-primary text-xs">
+                {intl.formatMessage(i18n.scrollAnimations)}
+              </h3>
+              <p className="text-xs text-text-secondary max-w-md mt-[2px]">
+                {intl.formatMessage(i18n.scrollAnimationsDesc)}
+              </p>
+            </div>
+            <div className="flex items-center">
+              <Switch
+                checked={scrollAnimations}
+                onCheckedChange={handleScrollAnimationsToggle}
+                variant="mono"
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -538,6 +600,30 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
         </CardContent>
       </Card>
       <TelemetrySettings />
+
+      <Card className="rounded-lg">
+        <CardHeader className="pb-0">
+          <CardTitle className="mb-1">{intl.formatMessage(i18n.debugTitle)}</CardTitle>
+          <CardDescription>{intl.formatMessage(i18n.debugDesc)}</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4 px-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-text-primary text-xs">{intl.formatMessage(i18n.debugLogging)}</h3>
+              <p className="text-xs text-text-secondary max-w-md mt-[2px]">
+                {intl.formatMessage(i18n.debugLoggingDesc)}
+              </p>
+            </div>
+            <div className="flex items-center">
+              <Switch
+                checked={debugLogging}
+                onCheckedChange={handleDebugLoggingToggle}
+                variant="mono"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-lg">
         <CardHeader className="pb-0">

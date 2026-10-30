@@ -27,11 +27,11 @@ target/
 # UI
 node_modules
 /.pnpm-store/
-./ui/desktop/out
-./ui/desktop/out-build
-./ui/desktop/out-pkg
-./ui/desktop/out-run-*
-./ui/desktop/.forge-out-dir
+/ui/desktop/out
+/ui/desktop/out-build
+/ui/desktop/out-pkg
+/ui/desktop/out-run-*
+/ui/desktop/.forge-out-dir
 
 # Generated goose DLLs (built at build time, not checked in)
 ui/desktop/src/bin/goose_ffi.dll
@@ -109,3 +109,8 @@ gooseselftest/
 /ui/goose-acp-client/pnpm-lock.yaml
 
 live-in-desktop-design
+
+# Local build notes and ad-hoc diagnostics
+/Build Notes.txt
+/gpu-probe*.ps1
+/index

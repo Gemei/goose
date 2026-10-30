@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "घर जाओ"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "बातचीत लोड हो रही है... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "कनेक्शन टूट गया। फिर से कनेक्ट किया जा रहा है…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "हम क्या एकत्र करते हैं:"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, one {# संदेश छिपाया गया} other {# संदेश छिपाए गए}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "चैट लोड हो रही है"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "मॉडल बदला गया: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (अनुरोधित)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "सभी दिखाएँ"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "सभी संकेत डिफ़ॉल्ट पर रीसेट हो गए"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "आउटपुट"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "पूरा आउटपुट देखें ({count} लाइनें)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "उपकरण विवरण"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "एजेंट लूप"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

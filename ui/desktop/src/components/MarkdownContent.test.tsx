@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, type RenderOptions } from '@testing-library/react';
 import { screen, waitFor } from '@testing-library/dom';
-import MarkdownContent from './MarkdownContent';
+import MarkdownContent, { DeferHighlightContext, highlightHtmlCache } from './MarkdownContent';
 import { IntlTestWrapper } from '../i18n/test-utils';
 
 const renderWithIntl = (ui: React.ReactElement, options?: RenderOptions) =>
@@ -494,6 +494,68 @@ for the result.`;
       await waitFor(() => {
         expect(container).toHaveTextContent('x^2');
       });
+    });
+  });
+
+  describe('CodeBlock highlight cache', () => {
+    it('captures highlight output once and reuses it on remount', async () => {
+      const content = '```js\nconst answer = 42;\n```';
+      const entriesBefore = highlightHtmlCache.size;
+
+      const first = renderWithIntl(<MarkdownContent content={content} />);
+      await waitFor(() => {
+        expect(first.container.querySelector('span.token')).not.toBeNull();
+        expect(first.container).toHaveTextContent('const answer = 42;');
+      });
+      expect(highlightHtmlCache.size).toBe(entriesBefore + 1);
+      first.unmount();
+
+      const second = renderWithIntl(<MarkdownContent content={content} />);
+      await waitFor(() => {
+        expect(second.container.querySelector('span.token')).not.toBeNull();
+        expect(second.container).toHaveTextContent('const answer = 42;');
+      });
+      expect(highlightHtmlCache.size).toBe(entriesBefore + 1);
+      second.unmount();
+    });
+
+    it('does not reuse captured output for different code', async () => {
+      const a = renderWithIntl(<MarkdownContent content={'```js\nlet x = 1;\n```'} />);
+      await waitFor(() => {
+        expect(a.container.querySelector('span.token')).not.toBeNull();
+      });
+      a.unmount();
+
+      const b = renderWithIntl(<MarkdownContent content={'```js\nlet x = 2;\n```'} />);
+      await waitFor(() => {
+        expect(b.container).toHaveTextContent('let x = 2;');
+      });
+      b.unmount();
+    });
+  });
+
+  describe('CodeBlock deferred highlight', () => {
+    it('mounts plain while hydrating, then highlights via the idle queue without caching plain output', async () => {
+      const content = '```js\nconst deferred = true;\n```';
+      const entriesBefore = highlightHtmlCache.size;
+
+      const { container, unmount } = renderWithIntl(
+        <DeferHighlightContext.Provider value={true}>
+          <MarkdownContent content={content} />
+        </DeferHighlightContext.Provider>
+      );
+
+      expect(container.querySelector('span.token')).toBeNull();
+      expect(highlightHtmlCache.size).toBe(entriesBefore);
+
+      await waitFor(
+        () => {
+          expect(container.querySelector('span.token')).not.toBeNull();
+        },
+        { timeout: 3000 }
+      );
+      expect(highlightHtmlCache.size).toBe(entriesBefore + 1);
+      unmount();
     });
   });
 });

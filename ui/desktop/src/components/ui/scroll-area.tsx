@@ -7,9 +7,17 @@ import { cn } from '../../utils';
 import {
   attachWheelSmoothing,
   cancelWheelSmoothing,
-  prefersInstantScroll,
+  endUserGesture,
+  isWheelGlideActive,
+  noteUserGesture,
+  noteUserInput,
+  READING_SETTLE_MS,
+  shouldAnimateScroll,
   smoothScrollTo,
+  userGestureRecent,
+  userInputRecent,
 } from '../../utils/smoothScroll';
+import { logScroll, logScrollMark, logScrollThrottled } from '../../utils/scrollDiagnostics';
 
 export interface ScrollAreaHandle {
   scrollToBottom: () => void;
@@ -17,10 +25,14 @@ export interface ScrollAreaHandle {
   isAtBottom: () => boolean;
   isFollowing: boolean;
   viewportRef: React.RefObject<HTMLDivElement | null>;
+  rootRef: React.RefObject<HTMLDivElement | null>;
 }
 
 interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
   autoScroll?: boolean;
+  /* History is still hydrating: the transcript grows as earlier batches
+     mount, and a follow pin here would fight a reader scrolling up. */
+  suspendFollow?: boolean;
   onScrollChange?: (isAtBottom: boolean) => void;
   scrollbarClassName?: string;
   /* padding needs to be passed into the container inside ScrollArea to avoid pushing the scrollbar out */
@@ -35,6 +47,7 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       className,
       children,
       autoScroll = false,
+      suspendFollow = false,
       onScrollChange,
       scrollbarClassName,
       paddingX,
@@ -53,14 +66,70 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
     const isFollowingRef = React.useRef(true);
     const userScrolledUpRef = React.useRef(false);
     const lastScrollHeightRef = React.useRef(0);
-    const isActivelyScrollingRef = React.useRef(false);
-    const scrollTimeoutRef = React.useRef<number | null>(null);
+    // Cached `scrollHeight - clientHeight`, refreshed on resize. The scroll
+    // handler runs every frame; reading scrollHeight there forces pending
+    // content-visibility layout synchronously on the input path.
+    const maxScrollTopRef = React.useRef(0);
+    const suspendFollowRef = React.useRef(false);
+    suspendFollowRef.current = suspendFollow;
+    const onScrollChangeRef = React.useRef(onScrollChange);
+    onScrollChangeRef.current = onScrollChange;
     const smoothingRef = React.useRef(false);
     const cancelSmoothRef = React.useRef<(() => void) | null>(null);
 
     isFollowingRef.current = isFollowing;
 
+    React.useEffect(() => {
+      logScrollMark('sa.config', { autoScroll, suspendFollow });
+    }, [autoScroll, suspendFollow]);
+
     const BOTTOM_SCROLL_THRESHOLD = 48;
+
+    // Seed the cached scroll maximum once the viewport exists. Subsequent
+    // changes arrive through the ResizeObserver below.
+    React.useLayoutEffect(() => {
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      maxScrollTopRef.current = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    }, []);
+
+    // True within 100ms of the last real user input (wheel/pointer/touch).
+    // Programmatic follow pins never stamp it, so streaming growth keeps
+    // them alive instead of starving behind their own scroll events.
+    const userScrollingRecently = () => userGestureRecent(100);
+
+    const readingSettleRef = React.useRef(0);
+
+    const cancelReadingSettle = React.useCallback(() => {
+      if (readingSettleRef.current) {
+        window.clearTimeout(readingSettleRef.current);
+        readingSettleRef.current = 0;
+      }
+    }, []);
+
+    // Any user-driven upward move (even one that stays inside the resume
+    // band) arms a settle check: if the gesture stops parked above the exact
+    // bottom, the user is reading and follow detaches. Without this, a few
+    // px of up-scroll left "following" on and content-visibility conversions
+    // (our own pre-warm work, or streaming growth) yanked the viewport back
+    // to the tail mid-read.
+    const armReadingSettle = React.useCallback(() => {
+      cancelReadingSettle();
+      readingSettleRef.current = window.setTimeout(() => {
+        readingSettleRef.current = 0;
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        if (userGestureRecent(80) || isWheelGlideActive(viewport)) return;
+        if (smoothingRef.current) return;
+        const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+        if (distance <= 2) return;
+        userScrolledUpRef.current = true;
+        if (isFollowingRef.current) {
+          setIsFollowing(false);
+          onScrollChange?.(false);
+        }
+      }, READING_SETTLE_MS);
+    }, [cancelReadingSettle, onScrollChange]);
 
     const isAtBottom = React.useCallback(() => {
       if (!viewportRef.current) return false;
@@ -78,12 +147,23 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       const target = viewport.scrollHeight - viewport.clientHeight;
       cancelWheelSmoothing(viewport);
       cancelSmoothRef.current?.();
-      smoothingRef.current = !prefersInstantScroll();
-      cancelSmoothRef.current = smoothScrollTo(viewport, Math.max(0, target));
+      smoothingRef.current = shouldAnimateScroll();
+      logScroll('sa.scrollToBottom', viewport, {
+        target,
+        smooth: smoothingRef.current,
+        userScrolledUp: userScrolledUpRef.current,
+      });
+      cancelSmoothRef.current = smoothScrollTo(viewport, Math.max(0, target), () => {
+        // The tween aims at the bottom as of click time; streaming content
+        // keeps growing underneath and only the next growth tick can re-pin,
+        // which requires smoothingRef cleared once the tween ends.
+        smoothingRef.current = false;
+      });
       setIsFollowing(true);
       userScrolledUpRef.current = false;
+      cancelReadingSettle();
       onScrollChange?.(true);
-    }, [onScrollChange]);
+    }, [onScrollChange, cancelReadingSettle]);
 
     const scrollToPosition = React.useCallback(
       ({ top, behavior = 'smooth' }: { top: number; behavior?: ScrollBehavior }) => {
@@ -106,6 +186,7 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
         isAtBottom,
         isFollowing,
         viewportRef,
+        rootRef,
       }),
       [scrollToBottom, scrollToPosition, isAtBottom, isFollowing]
     );
@@ -119,27 +200,27 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
 
       const viewport = viewportRef.current;
       const { scrollTop } = viewport;
-      const currentIsAtBottom = isAtBottom();
-
-      // detect if this is a user-initiated scroll (position changed from last known position)
-      const scrollDelta = Math.abs(scrollTop - lastScrollTopRef.current);
-      if (scrollDelta > 0) {
-        // Mark that user is actively scrolling immediately
-        isActivelyScrollingRef.current = true;
-
-        // clear any existing timeout and set a new one
-        if (scrollTimeoutRef.current) {
-          clearTimeout(scrollTimeoutRef.current);
-        }
-
-        // mark as not actively scrolling
-        scrollTimeoutRef.current = window.setTimeout(() => {
-          isActivelyScrollingRef.current = false;
-        }, 100);
-      }
+      // A zero maximum means the content still fits (or the observer has not
+      // reported yet), so fall back to a direct measurement. The cached path
+      // keeps the common scrollable case free of layout reads.
+      const maxScrollTop =
+        maxScrollTopRef.current > 0
+          ? maxScrollTopRef.current
+          : viewport.scrollHeight - viewport.clientHeight;
+      const currentIsAtBottom = maxScrollTop - scrollTop <= BOTTOM_SCROLL_THRESHOLD;
 
       const movedUp = scrollTop < lastScrollTopRef.current - 1;
       lastScrollTopRef.current = scrollTop;
+
+      logScrollThrottled('sa.scroll', viewport, {
+        follow: isFollowing,
+        atBottom: currentIsAtBottom,
+        movedUp,
+        gesture: userGestureRecent(350),
+        input: userInputRecent(350),
+        smoothing: smoothingRef.current,
+        scrolledUp: userScrolledUpRef.current,
+      });
 
       if (smoothingRef.current) {
         if (currentIsAtBottom) smoothingRef.current = false;
@@ -151,18 +232,31 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       // Leave follow only after the viewport has left the live edge. A tiny
       // upward move while still at the bottom hid the jump-to-bottom control
       // and left auto-scroll off, so the user could not reach new tokens.
-      if (movedUp && !currentIsAtBottom) {
-        userScrolledUpRef.current = true;
-        if (isFollowing) {
-          setIsFollowing(false);
-          onScrollChange?.(false);
+      // Deltas without real input are scroll anchoring, not the user: they
+      // must not stamp the gesture clock or detach the streaming follower.
+      if (movedUp && userInputRecent(350)) {
+        // Direction-aware gesture stamp: every real upward move is user input
+        // for the shared clock. Follow pins move down and never stamp, so
+        // streaming growth cannot starve behind its own scroll events.
+        noteUserGesture();
+        armReadingSettle();
+        if (!currentIsAtBottom) {
+          userScrolledUpRef.current = true;
+          if (isFollowing) {
+            setIsFollowing(false);
+            onScrollChange?.(false);
+          }
         }
       } else if (currentIsAtBottom && userScrolledUpRef.current) {
         userScrolledUpRef.current = false;
+        cancelReadingSettle();
+        endUserGesture();
         setIsFollowing(true);
         onScrollChange?.(true);
       } else if (currentIsAtBottom && !isFollowing) {
         userScrolledUpRef.current = false;
+        cancelReadingSettle();
+        endUserGesture();
         setIsFollowing(true);
         onScrollChange?.(true);
       }
@@ -172,7 +266,29 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       if (handleScrollProp) {
         handleScrollProp(viewport);
       }
-    }, [isAtBottom, isFollowing, onScrollChange, handleScrollProp]);
+    }, [isFollowing, onScrollChange, handleScrollProp, armReadingSettle, cancelReadingSettle]);
+    // Coalesce scroll handling to one run per frame: wheel streams can deliver
+    // events faster than the display refreshes and each one did layout reads
+    // plus state updates, which showed up as dropped frames.
+    const scrollHandlerFrameRef = React.useRef(0);
+
+    const handleScrollEvent = React.useCallback(() => {
+      if (scrollHandlerFrameRef.current) return;
+      scrollHandlerFrameRef.current = window.requestAnimationFrame(() => {
+        scrollHandlerFrameRef.current = 0;
+        handleScroll();
+      });
+    }, [handleScroll]);
+
+    React.useEffect(
+      () => () => {
+        if (scrollHandlerFrameRef.current) {
+          window.cancelAnimationFrame(scrollHandlerFrameRef.current);
+          scrollHandlerFrameRef.current = 0;
+        }
+      },
+      []
+    );
 
     // Auto-scroll when content changes and user is following
     React.useEffect(() => {
@@ -180,21 +296,37 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
 
       const viewport = viewportRef.current;
       const currentScrollHeight = viewport.scrollHeight;
+      maxScrollTopRef.current = Math.max(0, currentScrollHeight - viewport.clientHeight);
 
       // Only auto-scroll if:
       // 1. Content has actually grown (new content added)
       // 2. User was following (at the bottom)
       // 3. User hasn't manually scrolled up
       // 4. User is not actively scrolling
+      if (currentScrollHeight !== lastScrollHeightRef.current) {
+        logScroll('sa.growth', viewport, {
+          prevHeight: lastScrollHeightRef.current,
+          follow: isFollowing,
+          suspend: suspendFollowRef.current,
+          scrolledUp: userScrolledUpRef.current,
+          scrolling: userScrollingRecently(),
+          input: userInputRecent(120),
+          glide: isWheelGlideActive(viewport),
+        });
+      }
       if (
         currentScrollHeight > lastScrollHeightRef.current &&
         isFollowing &&
+        !suspendFollowRef.current &&
         !userScrolledUpRef.current &&
-        !isActivelyScrollingRef.current
+        !userScrollingRecently() &&
+        !userInputRecent(120) &&
+        viewport &&
+        !isWheelGlideActive(viewport)
       ) {
         // Use requestAnimationFrame to ensure DOM has updated
         requestAnimationFrame(() => {
-          if (viewportRef.current && !isActivelyScrollingRef.current) {
+          if (viewportRef.current && !userScrollingRecently()) {
             viewportRef.current.scrollTo({
               top: viewportRef.current.scrollHeight,
               behavior: 'auto',
@@ -214,7 +346,11 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
       const content = contentRef.current;
       if (!viewport || !content || typeof ResizeObserver === 'undefined') return;
 
-      type Anchor = { node: HTMLElement; top: number };
+      // `scrollTop` at capture time. The rect is only meaningful while the
+      // viewport is still where it was; a user scroll in between moves the
+      // rect by the scrolled distance, and applying that as "drift" replays
+      // the gesture backwards.
+      type Anchor = { node: HTMLElement; top: number; scrollTop: number };
       let anchor: Anchor | null = null;
 
       const rowInView = (row: HTMLElement, viewportRect: DOMRect) => {
@@ -227,7 +363,7 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
         if (anchor?.node.isConnected) {
           const rect = rowInView(anchor.node, viewportRect);
           if (rect) {
-            anchor = { node: anchor.node, top: rect.top };
+            anchor = { node: anchor.node, top: rect.top, scrollTop: viewport.scrollTop };
             return;
           }
         }
@@ -238,41 +374,125 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
           if (!(node instanceof Element)) continue;
           const row = node.closest('[data-message-index]');
           if (row instanceof HTMLElement && content.contains(row)) {
-            anchor = { node: row, top: row.getBoundingClientRect().top };
+            anchor = {
+              node: row,
+              top: row.getBoundingClientRect().top,
+              scrollTop: viewport.scrollTop,
+            };
             return;
           }
         }
         anchor = null;
       };
 
+      // Capture the anchor only once the wheel/gesture has settled. Capturing
+      // on every scroll event forced a layout + elementsFromPoint hit-test
+      // per frame and was the dominant cost of low-FPS scrolling.
+      let anchorCaptureTimer = 0;
+      const scheduleAnchorCapture = () => {
+        if (anchorCaptureTimer) window.clearTimeout(anchorCaptureTimer);
+        anchorCaptureTimer = window.setTimeout(() => {
+          anchorCaptureTimer = 0;
+          captureAnchor();
+        }, 60);
+      };
+
       const observer = new ResizeObserver(() => {
+        maxScrollTopRef.current = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+        logScroll('sa.resize', viewport, {
+          follow: isFollowingRef.current,
+          suspend: suspendFollowRef.current,
+          scrolledUp: userScrolledUpRef.current,
+          scrolling: userScrollingRecently(),
+          input: userInputRecent(120),
+          smoothing: smoothingRef.current,
+          glide: isWheelGlideActive(viewport),
+        });
+        // A wheel glide in flight is the user moving the view: don't fight it
+        // until the gesture ends, and keep streaming growth corrections idle.
+        if (isWheelGlideActive(viewport)) {
+          logScrollMark('sa.resize.skip', { reason: 'glide' });
+          return;
+        }
         if (
           isFollowingRef.current &&
+          !suspendFollowRef.current &&
           !userScrolledUpRef.current &&
-          !isActivelyScrollingRef.current &&
+          !userScrollingRecently() &&
+          // Yield to fresh wheel/pointer input: a resize pin that fires
+          // between the input and the coalesced scroll handler resets
+          // scrollTop first, so the handler never sees the user's move and
+          // follow never detaches. Same window the pins use everywhere else.
+          !userInputRecent(120) &&
           !smoothingRef.current
         ) {
-          cancelWheelSmoothing(viewport);
-          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' });
+          const distanceBefore = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+          if (distanceBefore > viewport.clientHeight) {
+            // A follower sits on the live edge; a viewport away from it is a
+            // reader (keyboard scroll, missed input). Detach instead of
+            // yanking them down after a content resize.
+            logScrollMark('sa.resize.detach', { distanceBefore, client: viewport.clientHeight });
+            userScrolledUpRef.current = true;
+            setIsFollowing(false);
+            onScrollChangeRef.current?.(false);
+          } else {
+            logScrollMark('sa.resize.pin', { distanceBefore, height: viewport.scrollHeight });
+            cancelWheelSmoothing(viewport);
+            viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' });
+            captureAnchor();
+            return;
+          }
+        }
+        if (!anchor) {
+          logScrollMark('sa.resize.anchor', { captured: false });
           captureAnchor();
           return;
         }
-        if (!anchor) {
+        // The stored rect is only meaningful while the viewport is where it
+        // was at capture time. If it moved (user gesture, glide, pin, tween),
+        // the rect delta is that movement, not layout drift — correcting it
+        // would replay the user's scroll backwards. Re-capture instead.
+        const movedSinceCapture = viewport.scrollTop !== anchor.scrollTop;
+        if (
+          movedSinceCapture ||
+          smoothingRef.current ||
+          isWheelGlideActive(viewport) ||
+          userInputRecent(350) ||
+          userGestureRecent(350)
+        ) {
+          logScrollMark('sa.resize.anchor', {
+            captured: false,
+            reason: movedSinceCapture ? 'moved' : 'gesture',
+            delta: viewport.scrollTop - anchor.scrollTop,
+            smoothing: smoothingRef.current,
+            glide: isWheelGlideActive(viewport),
+            input: userInputRecent(350),
+            gesture: userGestureRecent(350),
+          });
           captureAnchor();
           return;
         }
         const drift = anchor.node.getBoundingClientRect().top - anchor.top;
+        logScrollMark('sa.resize.anchor', {
+          captured: true,
+          drift,
+          corrected: Math.abs(drift) >= 1,
+        });
         if (Math.abs(drift) >= 1) {
+          // The correction keeps the anchor at its captured screen position,
+          // so only the remembered offset moves with it.
           viewport.scrollTop += drift;
+          anchor.scrollTop = viewport.scrollTop;
         }
-        captureAnchor();
+        scheduleAnchorCapture();
       });
       observer.observe(content);
       captureAnchor();
-      viewport.addEventListener('scroll', captureAnchor, { passive: true });
+      viewport.addEventListener('scroll', scheduleAnchorCapture, { passive: true });
       return () => {
+        if (anchorCaptureTimer) window.clearTimeout(anchorCaptureTimer);
         observer.disconnect();
-        viewport.removeEventListener('scroll', captureAnchor);
+        viewport.removeEventListener('scroll', scheduleAnchorCapture);
       };
     }, []);
 
@@ -287,18 +507,34 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
         cancelSmoothRef.current = null;
         smoothingRef.current = false;
       };
-      viewport.addEventListener('scroll', handleScroll, { passive: true });
-      viewport.addEventListener('wheel', cancelSmooth, { passive: true });
-      viewport.addEventListener('pointerdown', cancelSmooth);
-      return () => {
-        viewport.removeEventListener('scroll', handleScroll);
-        viewport.removeEventListener('wheel', cancelSmooth);
-        viewport.removeEventListener('pointerdown', cancelSmooth);
-        if (scrollTimeoutRef.current) {
-          clearTimeout(scrollTimeoutRef.current);
-        }
+      // Wheel classification happens in handleScroll; a tick that never
+      // leaves the bottom must not hold the growth pin behind the gesture
+      // clock, or streaming during at-bottom wheel strokes starves again.
+      const onWheel = () => {
+        noteUserInput();
+        cancelSmooth();
       };
-    }, [handleScroll]);
+      const onGesture = () => {
+        noteUserGesture();
+        noteUserInput();
+      };
+      // Scrollbar drags never fire wheel/touch on the viewport; capture the
+      // pointer on the root so thumb drags still count as real input.
+      const root = rootRef.current;
+      const onRootPointerDown = () => noteUserInput();
+      viewport.addEventListener('scroll', handleScrollEvent, { passive: true });
+      viewport.addEventListener('wheel', onWheel, { passive: true });
+      viewport.addEventListener('pointerdown', onGesture);
+      viewport.addEventListener('touchstart', onGesture, { passive: true });
+      root?.addEventListener('pointerdown', onRootPointerDown);
+      return () => {
+        viewport.removeEventListener('scroll', handleScrollEvent);
+        viewport.removeEventListener('wheel', onWheel);
+        viewport.removeEventListener('pointerdown', onGesture);
+        viewport.removeEventListener('touchstart', onGesture);
+        root?.removeEventListener('pointerdown', onRootPointerDown);
+      };
+    }, [handleScrollEvent]);
 
     React.useEffect(() => {
       const viewport = viewportRef.current;

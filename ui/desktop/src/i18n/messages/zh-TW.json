@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "回到首頁"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "正在載入對話... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "連線已中斷。正在重新連線…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "我們收集的內容："
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "已隱藏 {count, plural, other {# 則訊息}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "正在載入聊天"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "模型已變更：{previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (已請求)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "全部顯示"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "所有提示已重設為預設值"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "輸出"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "顯示完整輸出 ({count} 行)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "工具詳細資料"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "代理程式迴圈"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

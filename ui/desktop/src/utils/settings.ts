@@ -43,6 +43,8 @@ export interface Settings {
   enableWakelock: boolean;
   enableNotifications: boolean;
   spellcheckEnabled: boolean;
+  scrollAnimations: boolean;
+  debugLogging: boolean;
   // Key is kept as `externalGoosed` for backward compat with persisted user settings.
   externalGoosed: ExternalBackendConfig;
   globalShortcut?: string | null;
@@ -83,6 +85,8 @@ export const defaultSettings: Settings = {
   enableWakelock: false,
   enableNotifications: true,
   spellcheckEnabled: true,
+  scrollAnimations: false,
+  debugLogging: false,
   keyboardShortcuts: defaultKeyboardShortcuts,
   externalGoosed: {
     enabled: false,

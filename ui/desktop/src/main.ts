@@ -35,7 +35,7 @@ import { getLoginShellPath } from './loginShellPath';
 import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLeaseRegistry';
 import { normalizeAcpHttpBaseUrl } from './acp/url';
 import { expandTilde, sanitizeGoosePathRoot } from './utils/pathUtils';
-import log from './utils/logger';
+import log, { configureDebugLogging, LOG_DIR } from './utils/logger';
 import { ensureWinShims } from './utils/winShims';
 import { addRecentDir, loadRecentDirs } from './utils/recentDirs';
 import { formatAppName, errorMessage, formatErrorForLogging } from './utils/conversionUtils';
@@ -188,7 +188,7 @@ function translateMenuLabels(items: MenuItem[]): void {
 
 // Settings management
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
-const STARTUP_LOGS_DIR = path.join(app.getPath('userData'), 'logs', 'startup');
+const STARTUP_LOGS_DIR = path.join(LOG_DIR, 'startup');
 const validLanguageSettings = new Set<Settings['language']>([
   'system',
   'en',
@@ -244,6 +244,8 @@ function updateSettings(modifier: (settings: Settings) => void): void {
   modifier(settings);
   fsSync.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
+
+configureDebugLogging(getSettings().debugLogging);
 
 function getConfiguredGooseLocale(): string | undefined {
   const language = getSettings().language;
@@ -419,6 +421,20 @@ if (process.env.ENABLE_PLAYWRIGHT) {
   const debugPort = process.env.PLAYWRIGHT_DEBUG_PORT || '9222';
   console.log(`[Main] Enabling Playwright remote debugging on port ${debugPort}`);
   app.commandLine.appendSwitch('remote-debugging-port', debugPort);
+}
+
+// Scroll animations ride the GPU compositor; this is the "is it actually on?" check.
+// Default on for now; set GOOSE_GPU_STATUS=0 to opt out.
+if (process.env.GOOSE_GPU_STATUS !== '0') {
+  app.whenReady().then(async () => {
+    // Chromium finishes GPU initialization asynchronously; reading the feature
+    // status inside whenReady reports the pre-init defaults ('disabled_software'
+    // for every feature) even when hardware compositing is on. Log the settled
+    // state instead, and include the adapter the GPU process settled on.
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    log.info('[GPU-Diag] feature status (settled):', app.getGPUFeatureStatus());
+    log.info('[GPU-Diag] basic info (settled):', await app.getGPUInfo('basic'));
+  });
 }
 
 // In development mode, force registration as the default protocol client
@@ -1931,6 +1947,8 @@ const validSettingKeys: Set<string> = new Set([
   'enableWakelock',
   'enableNotifications',
   'spellcheckEnabled',
+  'scrollAnimations',
+  'debugLogging',
   'externalGoosed',
   'globalShortcut',
   'keyboardShortcuts',
@@ -1963,6 +1981,10 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
 
   if (key === 'language') {
     appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();
+  }
+
+  if (key === 'debugLogging') {
+    configureDebugLogging(value === true);
   }
 
   // Re-register shortcuts if keyboard shortcuts changed

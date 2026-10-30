@@ -1,4 +1,14 @@
-import React, { useState, useEffect, useRef, memo, useMemo, useCallback } from 'react';
+import React, {
+  memo,
+  useCallback,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -21,7 +31,7 @@ const customOneDarkTheme = {
     fontSize: '14px',
   },
   comment: { ...oneDark.comment, color: '#a0a0a0', fontStyle: 'italic' },
-  prolog: { ...oneDark.prolog, color: '#a0a0a0' },
+  prolog: { ...oneDark.prolog, color: '#a0a0a0', fontStyle: 'italic' },
   doctype: { ...oneDark.doctype, color: '#a0a0a0' },
   cdata: { ...oneDark.cdata, color: '#a0a0a0' },
 };
@@ -31,6 +41,8 @@ import { wrapHTMLInCodeBlock } from '../utils/htmlSecurity';
 import { BLOCKED_PROTOCOLS } from '../utils/urlSecurity';
 import { getTextDirection } from '../utils/textDirection';
 import { defineMessages, useIntl } from '../i18n';
+import { splitMarkdownBlocks } from '../utils/markdownBlocks';
+import { hashString, LruCache } from '../utils/markdownCache';
 
 const i18n = defineMessages({
   copyCode: {
@@ -43,7 +55,7 @@ const i18n = defineMessages({
   },
   noApplicationFound: {
     id: 'markdownContent.noApplicationFound',
-    defaultMessage: 'No application found to open this link.',
+    defaultMessage: 'No application found to open a link.',
   },
 });
 
@@ -133,6 +145,41 @@ function rehypePerBlockDirection(): (tree: HastNode) => void {
   };
 }
 
+// Very large code blocks exceed the value of coloring every character on the
+// main thread; beyond the cap they render as plain monospace until they stop
+// growing (nearly always only while a code block streams in).
+const SYNTAX_HIGHLIGHT_MAX_CHARS = 50_000;
+
+export const highlightHtmlCache = new LruCache<string>(120, 4_000_000);
+
+// While a long chat's history is hydrating, every CodeBlock would otherwise
+// run the full highlighter synchronously during mount, which dominates the
+// time to first usable view. When the context is true, code renders as plain
+// monospace first and the highlighter runs from a serial idle queue, so the
+// history drain stays cheap and highlighting never bursts.
+export const DeferHighlightContext = createContext(false);
+
+const pendingHighlightJobs: (() => void)[] = [];
+let highlightJobScheduled = false;
+
+function processNextHighlightJob(): void {
+  highlightJobScheduled = false;
+  const job = pendingHighlightJobs.shift();
+  if (!job) return;
+  job();
+  if (pendingHighlightJobs.length > 0) scheduleNextHighlightJob();
+}
+
+function scheduleNextHighlightJob(): void {
+  if (highlightJobScheduled) return;
+  highlightJobScheduled = true;
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(processNextHighlightJob, { timeout: 300 });
+  } else {
+    window.setTimeout(processNextHighlightJob, 50);
+  }
+}
+
 // Memoized CodeBlock component to prevent re-rendering when props haven't changed
 const CodeBlock = memo(function CodeBlock({
   language,
@@ -142,8 +189,49 @@ const CodeBlock = memo(function CodeBlock({
   children: string;
 }) {
   const intl = useIntl();
+  const deferHighlight = useContext(DeferHighlightContext);
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<number | null>(null);
+  const cacheKey = useMemo(() => hashString(`${language}\u0000${children}`), [children, language]);
+  const [cacheState, setCacheState] = useState<{ key: string; html: string } | null>(() => {
+    const html = highlightHtmlCache.get(cacheKey);
+    return html !== undefined ? { key: cacheKey, html } : null;
+  });
+  const highlighterRef = useRef<HTMLDivElement | null>(null);
+
+  const cachedHtml = cacheState !== null && cacheState.key === cacheKey ? cacheState.html : null;
+  const canHighlight = children.length <= SYNTAX_HIGHLIGHT_MAX_CHARS;
+  const [deferred, setDeferred] = useState(
+    () => deferHighlight && cachedHtml === null && canHighlight
+  );
+
+  useEffect(() => {
+    if (!deferHighlight) {
+      if (deferred) setDeferred(false);
+      return;
+    }
+    if (!deferred) return;
+    let cancelled = false;
+    pendingHighlightJobs.push(() => {
+      if (!cancelled) setDeferred(false);
+    });
+    scheduleNextHighlightJob();
+    return () => {
+      cancelled = true;
+    };
+  }, [deferHighlight, deferred]);
+
+  // Capture the highlighted markup once with a content-hash key, so any later
+  // mount of the same code (returning to the chat after a session switch)
+  // renders it verbatim instead of re-running the highlighter.
+  useLayoutEffect(() => {
+    if (cachedHtml !== null || !canHighlight || deferred) return;
+    const container = highlighterRef.current;
+    if (!container) return;
+    const html = container.innerHTML;
+    highlightHtmlCache.put(cacheKey, html, html.length);
+    setCacheState({ key: cacheKey, html });
+  }, [cacheKey, canHighlight, cachedHtml, deferred]);
 
   const handleCopy = async () => {
     try {
@@ -169,15 +257,9 @@ const CodeBlock = memo(function CodeBlock({
   }, []);
 
   // Memoize the SyntaxHighlighter component to prevent re-rendering
-  // Only re-render if language or children change
+  // Only re-render if language or children change. Oversized code (>cap)
+  // never reaches this path — it renders as plain monospace instead.
   const memoizedSyntaxHighlighter = useMemo(() => {
-    // For very large code blocks, consider truncating or lazy loading
-    const isLargeCodeBlock = children.length > 10000; // 10KB threshold
-
-    if (isLargeCodeBlock) {
-      console.log(`Large code block detected (${children.length} chars), consider optimization`);
-    }
-
     return (
       <SyntaxHighlighter
         style={customOneDarkTheme}
@@ -206,7 +288,7 @@ const CodeBlock = memo(function CodeBlock({
         {children}
       </SyntaxHighlighter>
     );
-  }, [language, children]);
+  }, [children, language]);
 
   return (
     <div className="relative group w-full" dir="ltr">
@@ -219,7 +301,25 @@ const CodeBlock = memo(function CodeBlock({
       >
         {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
       </button>
-      <div className="w-full overflow-x-auto">{memoizedSyntaxHighlighter}</div>
+      <div className="w-full overflow-x-auto" ref={highlighterRef}>
+        {cachedHtml !== null ? (
+          <div dangerouslySetInnerHTML={{ __html: cachedHtml }} />
+        ) : canHighlight && !deferred ? (
+          memoizedSyntaxHighlighter
+        ) : (
+          <code
+            dir="ltr"
+            style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '14px',
+            }}
+          >
+            {children}
+          </code>
+        )}
+      </div>
     </div>
   );
 });
@@ -267,10 +367,7 @@ const customUrlTransform = (url: string): string => {
   return url;
 };
 
-const MarkdownContent = memo(function MarkdownContent({
-  content,
-  className = '',
-}: MarkdownContentProps) {
+const MarkdownPipeline = memo(function MarkdownPipeline({ content }: { content: string }) {
   const intl = useIntl();
   const processedContent = useMemo(() => {
     try {
@@ -299,6 +396,50 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 
   return (
+    <ReactMarkdown
+      urlTransform={customUrlTransform}
+      remarkPlugins={[remarkGfm, remarkBreaks, [remarkMath, { singleDollarTextMath: false }]]}
+      rehypePlugins={[
+        [
+          rehypeKatex,
+          {
+            throwOnError: false,
+            errorColor: '#cc0000',
+            strict: false,
+          },
+        ],
+        rehypePerBlockDirection,
+      ]}
+      components={{
+        a: (props) => {
+          return (
+            <a
+              {...props}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!props.href) return;
+
+                void handleOpenExternal(props.href);
+              }}
+            />
+          );
+        },
+        code: MarkdownCode,
+      }}
+    >
+      {processedContent}
+    </ReactMarkdown>
+  );
+});
+
+const MarkdownContent = memo(function MarkdownContent({
+  content,
+  className = '',
+}: MarkdownContentProps) {
+  return (
     <div
       className={`w-full overflow-x-hidden prose prose-sm text-start text-text-primary dark:prose-invert max-w-full word-break font-sans
         prose-pre:p-0 prose-pre:m-0 !p-0
@@ -317,42 +458,49 @@ const MarkdownContent = memo(function MarkdownContent({
         prose-ul:mt-0 prose-ul:mb-3 prose-ul:font-sans
         prose-li:m-0 prose-li:font-sans ${className}`}
     >
-      <ReactMarkdown
-        urlTransform={customUrlTransform}
-        remarkPlugins={[remarkGfm, remarkBreaks, [remarkMath, { singleDollarTextMath: false }]]}
-        rehypePlugins={[
-          [
-            rehypeKatex,
-            {
-              throwOnError: false,
-              errorColor: '#cc0000',
-              strict: false,
-            },
-          ],
-          rehypePerBlockDirection,
-        ]}
-        components={{
-          a: (props) => {
-            return (
-              <a
-                {...props}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!props.href) return;
+      <MarkdownPipeline content={content} />
+    </div>
+  );
+});
 
-                  void handleOpenExternal(props.href);
-                }}
-              />
-            );
-          },
-          code: MarkdownCode,
-        }}
-      >
-        {processedContent}
-      </ReactMarkdown>
+/**
+ * Streaming variant of MarkdownContent. The document is split into top-level
+ * blocks; finished blocks parse and highlight once and are reused verbatim
+ * across flushes, so only the growing tail block re-renders per throttle tick.
+ * Rendered output matches MarkdownContent (same pipeline and components).
+ */
+export const StreamingMarkdownContent = memo(function StreamingMarkdownContent({
+  content,
+  className = '',
+}: MarkdownContentProps) {
+  const segments = useMemo(() => splitMarkdownBlocks(content), [content]);
+
+  const tailIndex = segments.length - 1;
+  return (
+    <div
+      className={`w-full overflow-x-hidden prose prose-sm text-start text-text-primary dark:prose-invert max-w-full word-break font-sans
+        prose-pre:p-0 prose-pre:m-0 !p-0
+        prose-code:break-all prose-code:whitespace-pre-wrap prose-code:font-mono
+        prose-a:break-all prose-a:overflow-wrap-anywhere
+        prose-table:table prose-table:w-full
+        prose-blockquote:text-inherit
+        prose-td:border prose-td:border-border-primary prose-td:p-2
+        prose-th:border prose-th:border-border-primary prose-th:p-2
+        prose-thead:bg-background-primary
+        prose-h1:text-2xl prose-h1:font-normal prose-h1:mb-5 prose-h1:mt-0 prose-h1:font-sans
+        prose-h2:text-xl prose-h2:font-normal prose-h2:mb-4 prose-h2:mt-4 prose-h2:font-sans
+        prose-h3:text-lg prose-h3:font-normal prose-h3:mb-3 prose-h3:mt-3 prose-h3:font-sans
+        prose-p:mt-0 prose-p:mb-2 prose-p:font-sans
+        prose-ol:my-2 prose-ol:font-sans
+        prose-ul:mt-0 prose-ul:mb-3 prose-ul:font-sans
+        prose-li:m-0 prose-li:font-sans ${className}`}
+    >
+      {segments.map((segment, index) => (
+        <MarkdownPipeline
+          key={index === tailIndex ? 'md-tail' : `md-${index}:${segment}`}
+          content={segment}
+        />
+      ))}
     </div>
   );
 });

@@ -17,23 +17,26 @@ export function applyElicitationRequest(
     return messagesChange(state);
   }
 
-  state.messages.push({
-    id: request.id,
-    role: 'assistant',
-    created: Math.floor(Date.now() / 1000),
-    content: [
-      {
-        type: 'actionRequired',
-        data: {
-          actionType: 'elicitation',
-          id: request.id,
-          message: request.request.message,
-          requested_schema: request.request.requestedSchema,
+  state.messages = [
+    ...state.messages,
+    {
+      id: request.id,
+      role: 'assistant',
+      created: Math.floor(Date.now() / 1000),
+      content: [
+        {
+          type: 'actionRequired',
+          data: {
+            actionType: 'elicitation',
+            id: request.id,
+            message: request.request.message,
+            requested_schema: request.request.requestedSchema,
+          },
         },
-      },
-    ],
-    metadata: { ...DEFAULT_VISIBLE_MESSAGE_METADATA },
-  });
+      ],
+      metadata: { ...DEFAULT_VISIBLE_MESSAGE_METADATA },
+    },
+  ];
 
   return messagesChange(state);
 }

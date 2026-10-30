@@ -26,12 +26,13 @@ const noWindowLocationHref = {
         ) {
           context.report({
             node,
-            message: 'Do not use window.location.href directly in Electron apps. Use setView from the project instead'
+            message:
+              'Do not use window.location.href directly in Electron apps. Use setView from the project instead',
           });
         }
-      }
+      },
     };
-  }
+  },
 };
 
 module.exports = [
@@ -106,6 +107,11 @@ module.exports = [
         cancelAnimationFrame: 'readonly',
         ResizeObserver: 'readonly',
         MutationObserver: 'readonly',
+        performance: 'readonly',
+        WheelEvent: 'readonly',
+        PerformanceObserver: 'readonly',
+        IntersectionObserver: 'readonly',
+        DOMRect: 'readonly',
         NodeFilter: 'readonly',
         Text: 'readonly',
         AudioContext: 'readonly',
@@ -129,13 +135,13 @@ module.exports = [
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
-      'react': reactPlugin,
+      react: reactPlugin,
       'react-hooks': reactHooksPlugin,
-      'custom': {
+      custom: {
         rules: {
-          'no-window-location-href': noWindowLocationHref
-        }
-      }
+          'no-window-location-href': noWindowLocationHref,
+        },
+      },
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
@@ -144,22 +150,28 @@ module.exports = [
       // Customize rules
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off', // We use TypeScript for prop validation
-      'react/no-unknown-property': ['error', {
-        ignore: ['dark:fill'] // Allow Tailwind dark mode syntax
-      }],
+      'react/no-unknown-property': [
+        'error',
+        {
+          ignore: ['dark:fill'], // Allow Tailwind dark mode syntax
+        },
+      ],
       'react/no-unescaped-entities': 'off', // Allow quotes in JSX
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['warn', {
-        argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_'
-      }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       '@typescript-eslint/no-var-requires': 'warn', // Downgrade to warning for Electron main process
       'no-undef': 'error',
       'no-useless-catch': 'warn',
-      'custom/no-window-location-href': 'error'
+      'custom/no-window-location-href': 'error',
     },
     settings: {
       react: {

@@ -17,6 +17,7 @@ import { ChatType } from '../types/chat';
 import { useIsMobile } from '../hooks/use-mobile';
 import { useNavigationContextSafe } from './Layout/NavigationContext';
 import { cn } from '../utils';
+import { logScroll, logScrollMark } from '../utils/scrollDiagnostics';
 import { useChatSession } from '../hooks/useChatSession';
 import { acpUpdateWorkingDir } from '../acp/sessions';
 import { useNavigation } from '../hooks/useNavigation';
@@ -61,6 +62,10 @@ const i18n = defineMessages({
   scrollToBottom: {
     id: 'baseChat.scrollToBottom',
     defaultMessage: 'Scroll to bottom',
+  },
+  loadingConversationProgress: {
+    id: 'baseChat.loadingConversationProgress',
+    defaultMessage: 'loading conversation... {percent}%',
   },
 });
 
@@ -357,17 +362,60 @@ export default function BaseChat({
   // Track if this is the initial render for session resuming
   const initialRenderRef = useRef(true);
 
+  const [historyProgress, setHistoryProgress] = useState<number | null>(null);
+  const historyLoading = historyProgress !== null;
+  const historyProgressRef = useRef<number | null>(null);
+  historyProgressRef.current = historyProgress;
+  useEffect(() => {
+    if (messages.length === 0) {
+      setHistoryProgress(null);
+    }
+  }, [messages.length]);
+
+  useEffect(() => {
+    logScrollMark('bc.state', {
+      sessionId,
+      messages: messages.length,
+      chatState,
+      historyProgress,
+      following: scrollRef.current?.isFollowing,
+    });
+  }, [sessionId, messages.length, chatState, historyProgress]);
+
+  // Owns the data-chat-hydrating attribute on the chat scroll container so
+  // main.css hides the scrollbar for the whole loading phase (snapshot load,
+  // then history hydration) starting with the very first painted frame.
+  React.useLayoutEffect(() => {
+    const root = scrollRef.current?.rootRef.current ?? null;
+    if (!root) return;
+    const hydrating = chatState === ChatState.LoadingConversation || historyProgress !== null;
+    root.setAttribute('data-chat-hydrating', String(hydrating));
+    return () => {
+      root.setAttribute('data-chat-hydrating', 'false');
+    };
+  }, [chatState, historyProgress, sessionId]);
+
   // Auto-scroll when messages are loaded (for session resuming)
   const handleRenderingComplete = React.useCallback(() => {
-    // Only force scroll on the very first render
+    // The list's own follow pin keeps the live edge glued during runs, and
+    // ScrollArea auto-scrolls small chats; a per-message smooth tween here
+    // only lagged the live edge behind the pin for up to 300ms. Jump remains
+    // only for the initial session load.
     if (initialRenderRef.current && messages.length > 0) {
       initialRenderRef.current = false;
-      if (scrollRef.current?.scrollToBottom) {
-        scrollRef.current.scrollToBottom();
-      }
-    } else if (scrollRef.current?.isFollowing) {
-      if (scrollRef.current?.scrollToBottom) {
-        scrollRef.current.scrollToBottom();
+      // A reader who scrolled up during hydration must not be yanked when the
+      // drain finishes.
+      const following = scrollRef.current?.isFollowing;
+      logScroll('bc.renderingComplete', scrollRef.current?.viewportRef.current, {
+        following,
+        messages: messages.length,
+        historyProgress: historyProgressRef.current,
+      });
+      if (following !== false) {
+        scrollRef.current?.scrollToBottom();
+        logScroll('bc.renderingComplete.after', scrollRef.current?.viewportRef.current, {});
+      } else {
+        logScrollMark('bc.jump.skip', { reason: 'not-following' });
       }
     }
   }, [messages.length]);
@@ -512,10 +560,11 @@ export default function BaseChat({
 
           <ScrollArea
             ref={scrollRef}
-            className={`flex-1 min-h-0 relative ${contentClassName}`}
+            className={`chat-scroll-area flex-1 min-h-0 relative ${contentClassName}`}
             type="always"
             scrollbarClassName="w-2 p-px transition-none"
             autoScroll={messages.length <= 50}
+            suspendFollow={historyLoading}
             onScrollChange={setAtBottom}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -571,6 +620,7 @@ export default function BaseChat({
                       onRenderingComplete={handleRenderingComplete}
                       onMessageUpdate={isSubagentSession ? undefined : onMessageUpdate}
                       submitElicitationResponse={submitElicitationResponse}
+                      onHydrationProgress={setHistoryProgress}
                     />
                   </div>
                 </SearchView>
@@ -580,25 +630,41 @@ export default function BaseChat({
             ) : null}
           </ScrollArea>
 
-          {chatState !== ChatState.Idle && (
+          {(chatState !== ChatState.Idle || historyLoading) && (
             <div className="absolute bottom-1 left-4 z-20 pointer-events-none">
-              <LoadingGoose chatState={chatState} message={progressMessage} />
+              <LoadingGoose
+                chatState={
+                  historyLoading && chatState === ChatState.Idle
+                    ? ChatState.LoadingConversation
+                    : chatState
+                }
+                message={
+                  historyProgress != null
+                    ? intl.formatMessage(i18n.loadingConversationProgress, {
+                        percent: Math.round(historyProgress * 100),
+                      })
+                    : progressMessage
+                }
+              />
             </div>
           )}
 
-          {messages.length > 0 && !atBottom && (
-            <button
-              type="button"
-              aria-label={intl.formatMessage(i18n.scrollToBottom)}
-              className="absolute bottom-3 right-7 z-30 flex size-9 items-center justify-center rounded-full border border-border-primary bg-background-secondary text-text-primary shadow-md hover:bg-background-tertiary"
-              onClick={() => {
-                scrollRef.current?.scrollToBottom();
-                window.dispatchEvent(new CustomEvent(AppEvents.SCROLL_CHAT_TO_BOTTOM));
-              }}
-            >
-              <ArrowDown className="size-5" />
-            </button>
-          )}
+          {messages.length > 0 &&
+            !atBottom &&
+            !historyLoading &&
+            chatState !== ChatState.LoadingConversation && (
+              <button
+                type="button"
+                aria-label={intl.formatMessage(i18n.scrollToBottom)}
+                className="absolute bottom-3 right-7 z-30 flex size-9 items-center justify-center rounded-full border border-border-primary bg-background-secondary text-text-primary shadow-md hover:bg-background-tertiary"
+                onClick={() => {
+                  scrollRef.current?.scrollToBottom();
+                  window.dispatchEvent(new CustomEvent(AppEvents.SCROLL_CHAT_TO_BOTTOM));
+                }}
+              >
+                <ArrowDown className="size-5" />
+              </button>
+            )}
         </div>
 
         {acpRecovering && (

@@ -62,11 +62,13 @@ When [prompt injection detection](/docs/guides/security/prompt-injection-detecti
 Extensions may optionally log to subdirectories under `~/.local/state/goose/logs/`. The specific subdirectory structure is determined by each extension's implementation.
 :::
 
-### Desktop Application Log
+### Desktop Application Logs
 
-The desktop application maintains its own logs:
-* macOS: `~/Library/Application Support/Goose/logs/main.log`
-* Windows: `%APPDATA%\Block\goose\logs\main.log`
+The desktop application and every goose backend it launches write to a single directory:
+* macOS: `~/Library/Application Support/Goose/logs/`
+* Windows: `%APPDATA%\Block\goose\logs\`
+
+That directory contains the Electron log (`main.log`), backend startup diagnostics (`startup/`), and the goose component logs (`cli/`, LLM request logs, and so on). Set `GOOSE_LOG_DIR` to redirect all of them together.
 
 The desktop application follows platform conventions for its own operational logs and state data, but uses the standard goose [session records](#session-records) for actual conversations and interactions. This means your conversation history is consistent regardless of which interface you use to interact with goose.
 

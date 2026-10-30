@@ -99,21 +99,6 @@ const AppLayoutContent: React.FC<AppLayoutContentProps> = ({ activeSessions, liv
 
   const { setChat } = chatContext;
 
-  if (isOnSettingsRoute) {
-    return (
-      <div className="relative flex h-full w-full flex-1 bg-background-secondary">
-        <Outlet />
-        <div className="hidden">
-          <ChatSessionsContainer
-            setChat={setChat}
-            activeSessions={activeSessions}
-            liveVoice={liveVoice}
-          />
-        </div>
-      </div>
-    );
-  }
-
   const needsTrafficLightInset = safeIsMacOS && !isFullScreen;
   const headerPadding = needsTrafficLightInset ? 'pl-[96px]' : 'pl-4';
   const headerTop = needsTrafficLightInset ? 'top-[14px]' : 'top-[11px]';
@@ -123,51 +108,64 @@ const AppLayoutContent: React.FC<AppLayoutContentProps> = ({ activeSessions, liv
 
   return (
     <div className="flex flex-1 w-full h-full relative animate-fade-in bg-background-primary flex-row">
-      <div
-        style={{ zIndex: Z_INDEX.HEADER }}
-        className={cn('absolute flex items-center gap-1', headerPadding, headerTop, 'ml-1.5')}
-      >
-        <Button
-          onClick={() => setIsNavExpanded(!isNavExpanded)}
-          className="no-drag hover:!bg-background-tertiary"
-          variant="ghost"
-          size="xs"
-          title={navToggleTitle}
-          aria-label={navToggleTitle}
+      {!isOnSettingsRoute && (
+        <div
+          style={{ zIndex: Z_INDEX.HEADER }}
+          className={cn('absolute flex items-center gap-1', headerPadding, headerTop, 'ml-1.5')}
         >
-          <PanelLeft className="w-5 h-5" />
-        </Button>
-      </div>
+          <Button
+            onClick={() => setIsNavExpanded(!isNavExpanded)}
+            className="no-drag hover:!bg-background-tertiary"
+            variant="ghost"
+            size="xs"
+            title={navToggleTitle}
+            aria-label={navToggleTitle}
+          >
+            <PanelLeft className="w-5 h-5" />
+          </Button>
+        </div>
+      )}
 
       {/* Main content with navigation. Shared white canvas; the sidebar is a
           rounded outlined card floating on it with breathing room. */}
       <div className="flex flex-1 w-full h-full min-h-0 flex-row">
-        <motion.div
-          key="nav"
-          initial={false}
-          animate={{ width: isNavExpanded ? navWidth : 0 }}
-          transition={
-            isDragging ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 40 }
-          }
-          style={{ height: '100%' }}
-          className="relative flex-shrink-0 overflow-hidden h-full p-2"
-        >
-          <div className="w-full h-full overflow-hidden rounded-xl border border-border-primary">
-            <Navigation activeLiveVoiceSessionId={liveVoice.activeSessionId} />
-          </div>
-          {isNavExpanded && (
-            <div
-              className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-border-primary/30 transition-colors"
-              onMouseDown={handleResizeMouseDown}
-            />
-          )}
-        </motion.div>
+        {!isOnSettingsRoute && (
+          <motion.div
+            key="nav"
+            initial={false}
+            animate={{ width: isNavExpanded ? navWidth : 0 }}
+            transition={
+              isDragging ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 40 }
+            }
+            style={{ height: '100%' }}
+            className="relative flex-shrink-0 overflow-hidden h-full p-2"
+          >
+            <div className="w-full h-full overflow-hidden rounded-xl border border-border-primary">
+              <Navigation activeLiveVoiceSessionId={liveVoice.activeSessionId} />
+            </div>
+            {isNavExpanded && (
+              <div
+                className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-border-primary/30 transition-colors"
+                onMouseDown={handleResizeMouseDown}
+              />
+            )}
+          </motion.div>
+        )}
 
         {/* Main content — no border / no card; just flows on the canvas. */}
         <div className="flex-1 overflow-hidden min-h-0">
-          <Outlet />
-          {/* Always render ChatSessionsContainer to keep SSE connections alive.
-              When navigating away from /pair, hide it with CSS */}
+          {isOnSettingsRoute ? (
+            <div className="relative flex h-full w-full flex-1 bg-background-secondary">
+              <Outlet />
+            </div>
+          ) : (
+            <Outlet />
+          )}
+          {/* Always render ChatSessionsContainer at this exact tree position:
+              it keeps SSE connections alive and preserves session DOM (hydration,
+              scroll pin) across route changes. A second copy in the settings
+              branch made every settings round-trip unmount and re-hydrate every
+              session. */}
           <div className={isOnPairRoute ? 'contents' : 'hidden'}>
             <ChatSessionsContainer
               setChat={setChat}

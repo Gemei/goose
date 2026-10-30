@@ -512,6 +512,14 @@
   display: block !important;
 }
 
+/* While a chat session is loading: the scrollbar is hidden and rows stay */
+/* hidden (MessageList) so only one loading pill shows until the chat has */
+/* fully loaded. Scrolling stays available while loading; scroll anchors */
+/* keep the view stable as history cards arrive. */
+[data-chat-hydrating='true'] > [data-orientation='vertical'] {
+  display: none !important;
+}
+
 /* Native scrollbar styling */
 * {
   scrollbar-width: auto;
@@ -682,9 +690,32 @@ pre:has(> code.bg-inline-code) {
 
 /* After history has laid out, skip paint/layout of offscreen cards. auto
    intrinsic size remembers the measured height so scrolling does not hitch. */
+
+/* Keep scrolling on the compositor for the chat: hints the browser that the
+   scroll position moves every frame and that the content subtree can live in
+   its own pre-painted layers, so wheel glides do not trigger main-thread
+   layout or paint work per frame. */
+.chat-scroll-area > [data-radix-scroll-area-viewport] {
+  will-change: scroll-position;
+}
+
+.chat-scroll-area [data-radix-scroll-area-viewport] > div {
+  will-change: transform;
+}
+
 .chat-history-settled > [data-testid='message-container'] {
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
+}
+
+/* A single assistant turn can contain a long chain of tool/command cards.
+   The row-level skip above treats the whole chain as one box, so every card
+   was laid out and painted the moment the row entered the pre-warm band.
+   Let each card skip independently; `auto` remembers its measured height
+   after the first render so later scroll passes use the real size. */
+.chat-history-settled .goose-message-tool {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
 }
 
 /* Sidebar scrollbar styles */

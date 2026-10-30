@@ -1,7 +1,7 @@
 import { AppEvents } from '../constants/events';
 import { ToolIconWithStatus, ToolCallStatus } from './ToolCallStatusIndicator';
 import { getToolCallIcon } from '../utils/toolIconMapping';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './ui/button';
 import { ToolCallArguments, ToolCallArgumentValue } from './ToolCallArguments';
 import MarkdownContent from './MarkdownContent';
@@ -21,6 +21,10 @@ import type { ContentBlock } from '../types/message';
 import McpAppRenderer from './McpApps/McpAppRenderer';
 import ToolApprovalButtons from './ToolApprovalButtons';
 import { defineMessages, useIntl } from '../i18n';
+import {
+  STREAMING_RENDER_COOLDOWN_MS,
+  useThrottledStreamingText,
+} from '../hooks/useThrottledStreamingText';
 
 type LoadingStatus = 'loading' | 'success' | 'error';
 
@@ -40,6 +44,10 @@ const i18n = defineMessages({
   output: {
     id: 'toolCallWithResponse.output',
     defaultMessage: 'Output',
+  },
+  showFullOutput: {
+    id: 'toolCallWithResponse.showFullOutput',
+    defaultMessage: 'Show full output ({count} lines)',
   },
   toolResultAlt: {
     id: 'toolCallWithResponse.toolResultAlt',
@@ -562,6 +570,14 @@ function ToolCallView({
 
   const toolResults = toolResult ? getToolResultContent(toolResult) : [];
   const liveOutput = toolResponse ? '' : liveOutputToString(notifications);
+  // Command output updates per line; republish at the markdown flush cadence
+  // so a running command cannot rebuild its output <pre> (and its forced
+  // layout read) inside scroll frames.
+  const liveOutputForDisplay = useThrottledStreamingText(
+    liveOutput,
+    liveOutput.length > 0,
+    STREAMING_RENDER_COOLDOWN_MS
+  );
 
   const logs = notifications
     ?.filter((notification) => {
@@ -861,7 +877,7 @@ function ToolCallView({
 
       {liveOutput && (
         <div className="border-t border-border-primary">
-          <LiveOutputView output={liveOutput} />
+          <LiveOutputView output={liveOutputForDisplay} />
         </div>
       )}
 
@@ -1014,6 +1030,33 @@ function LiveOutputView({ output }: { output: string }) {
   );
 }
 
+const TOOL_OUTPUT_MAX_LINES = 200;
+
+function TruncatedToolOutput({ text }: { text: string }) {
+  const intl = useIntl();
+  const [showAll, setShowAll] = useState(false);
+  const lines = useMemo(() => text.split('\n'), [text]);
+  const truncated = !showAll && lines.length > TOOL_OUTPUT_MAX_LINES;
+  const shown = truncated ? lines.slice(0, TOOL_OUTPUT_MAX_LINES).join('\n') : text;
+
+  return (
+    <>
+      <pre className="font-mono text-xs whitespace-pre-wrap max-w-full overflow-x-auto">
+        {shown}
+      </pre>
+      {truncated && (
+        <button
+          type="button"
+          className="mt-2 text-xs text-text-secondary hover:text-text-primary hover:underline"
+          onClick={() => setShowAll(true)}
+        >
+          {intl.formatMessage(i18n.showFullOutput, { count: lines.length })}
+        </button>
+      )}
+    </>
+  );
+}
+
 function ToolResultView({ result, isStartExpanded }: ToolResultViewProps) {
   const intl = useIntl();
   const hasText = (c: ContentBlock): c is ContentBlock & { text: string } =>
@@ -1034,15 +1077,13 @@ function ToolResultView({ result, isStartExpanded }: ToolResultViewProps) {
       isStartExpanded={isStartExpanded}
     >
       <div className="pl-4 pr-4 py-4">
-        {hasText(result) && (
-          <pre className="font-mono text-xs whitespace-pre-wrap max-w-full overflow-x-auto">
-            {result.text.trim()}
-          </pre>
-        )}
+        {hasText(result) && <TruncatedToolOutput text={result.text.trim()} />}
         {hasImage(result) && (
           <img
             src={`data:${result.mimeType};base64,${result.data}`}
             alt={intl.formatMessage(i18n.toolResultAlt)}
+            loading="lazy"
+            decoding="async"
             className="max-w-full h-auto rounded-md my-2"
             onError={(e) => {
               console.error('Failed to load image');

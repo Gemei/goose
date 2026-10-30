@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import ImagePreview from './ImagePreview';
 import { formatMessageTimestamp } from '../utils/timeUtils';
 import MarkdownContent from './MarkdownContent';
+import { StreamingMarkdownContent } from './MarkdownContent';
 import ThinkingContent from './ThinkingContent';
 import ToolCallWithResponse from './ToolCallWithResponse';
 import {
@@ -136,7 +137,11 @@ function GooseMessage({
           <div className="flex flex-col group">
             {displayText.trim() && (
               <div ref={contentRef} className="agent-message-bubble w-full" dir={messageDir}>
-                <MarkdownContent content={markdownText} />
+                {isStreaming && shouldThrottleStreamingText ? (
+                  <StreamingMarkdownContent content={markdownText} />
+                ) : (
+                  <MarkdownContent content={markdownText} />
+                )}
               </div>
             )}
 

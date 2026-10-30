@@ -103,7 +103,7 @@ async fn check_provider(
 }
 
 pub async fn handle_info(verbose: bool, check: bool) -> Result<()> {
-    let logs_dir = Paths::in_state_dir("logs");
+    let logs_dir = goose::logging::log_dir();
     let sessions_dir = Paths::in_data_dir(SESSIONS_FOLDER);
     let sessions_db = sessions_dir.join(DB_NAME);
     let config = Config::global();

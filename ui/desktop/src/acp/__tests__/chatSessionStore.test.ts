@@ -542,6 +542,38 @@ describe('acpChatSessionStore', () => {
     expect(finishedSnapshot.messages[0].content).toEqual([{ type: 'text', text: 'Hello' }]);
   });
 
+  it('holds replayed messages behind the in-flight load even when chatState flips', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.startSessionLoad(currentSessionId);
+    acpChatSessionActions.applyAcpSessionNotification(
+      agentMessageChunkNotification(currentSessionId, 'message-1', 'Hello')
+    );
+
+    // A mid-replay waiting-state change (permission/elicitation card) must not
+    // leak adopted messages into per-chunk rendering; the card materializes
+    // with the rest of the replay at finishSessionLoad.
+    const waitingSnapshot = acpChatSessionActions.applyPermissionRequest(
+      permissionRequest(currentSessionId, 'tool-1')
+    );
+    expect(waitingSnapshot.chatState).toBe(ChatState.WaitingForUserInput);
+    expect(waitingSnapshot.messages).toEqual([]);
+
+    const streamingSnapshot = acpChatSessionActions.applyAcpSessionNotification(
+      agentMessageChunkNotification(currentSessionId, 'message-2', 'Tail')
+    );
+    expect(streamingSnapshot.messages).toEqual([]);
+
+    const finishedSnapshot = acpChatSessionActions.finishSessionLoad(
+      currentSessionId,
+      session(currentSessionId)
+    );
+    expect(finishedSnapshot.messages).toHaveLength(3);
+    expect(finishedSnapshot.messages[1].content[0]).toMatchObject({
+      type: 'actionRequired',
+    });
+  });
+
   it('applies permission requests as waiting action-required messages', () => {
     const currentSessionId = sessionId('session-1');
 

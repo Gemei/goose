@@ -131,6 +131,9 @@
   "baseChat.goHome": {
     "defaultMessage": "Về trang chủ"
   },
+  "baseChat.loadingConversationProgress": {
+    "defaultMessage": "đang tải cuộc trò chuyện... {percent}%"
+  },
   "baseChat.reconnecting": {
     "defaultMessage": "Mất kết nối. Đang kết nối lại…"
   },
@@ -2690,20 +2693,11 @@
   "privacyInfoModal.whatWeCollect": {
     "defaultMessage": "Những gì chúng tôi thu thập:"
   },
-  "messageList.hiddenMessages": {
-    "defaultMessage": "{count, plural, other {# tin nhắn đã bị ẩn}}"
-  },
-  "messageList.loadingHistory": {
-    "defaultMessage": "Đang tải cuộc trò chuyện"
-  },
   "messageList.modelChanged": {
     "defaultMessage": "Mô hình đã thay đổi: {previousModel} → {currentModel}"
   },
   "messageList.requestedModel": {
     "defaultMessage": "{model} (đã yêu cầu)"
-  },
-  "messageList.showAllMessages": {
-    "defaultMessage": "Hiển thị tất cả"
   },
   "promptsSettings.allPromptsReset": {
     "defaultMessage": "Tất cả lời nhắc đã được đặt lại về mặc định"
@@ -4574,6 +4568,9 @@
   "toolCallWithResponse.output": {
     "defaultMessage": "Đầu ra"
   },
+  "toolCallWithResponse.showFullOutput": {
+    "defaultMessage": "Hiện toàn bộ đầu ra ({count} dòng)"
+  },
   "toolCallWithResponse.toolDetails": {
     "defaultMessage": "Chi tiết công cụ"
   },
@@ -4834,5 +4831,23 @@
   },
   "settings.agentLoop.title": {
     "defaultMessage": "Vòng lặp tác nhân"
+  },
+  "settings.debug.description": {
+    "defaultMessage": "Diagnostic tools for troubleshooting goose"
+  },
+  "settings.debug.logging.description": {
+    "defaultMessage": "Enable verbose console and file logging, including scroll, viewport and session-load diagnostics. Logging adds overhead, so leave it off unless you are investigating a problem."
+  },
+  "settings.debug.logging.title": {
+    "defaultMessage": "Debug logging"
+  },
+  "settings.debug.title": {
+    "defaultMessage": "Debug"
+  },
+  "settings.scrollAnimations.description": {
+    "defaultMessage": "Animate wheel and jump-to-bottom scrolling. Turn off for instant scrolling, like a system with animations disabled."
+  },
+  "settings.scrollAnimations.title": {
+    "defaultMessage": "Scroll animations"
   }
 }

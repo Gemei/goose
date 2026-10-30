@@ -9,6 +9,19 @@ use tracing_subscriber::{
     Registry,
 };
 
+const LOG_DIR_ENV: &str = "GOOSE_LOG_DIR";
+
+/// Directory where goose components write their log files.
+///
+/// The desktop app sets `GOOSE_LOG_DIR` so the backend writes alongside the
+/// Electron logs. Standalone CLI runs keep using the platform state directory.
+pub fn log_dir() -> PathBuf {
+    std::env::var_os(LOG_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Paths::in_state_dir("logs"))
+}
+
 /// Configuration for the shared logging setup.
 pub struct LoggingConfig<'a> {
     /// Component name used for the log directory (e.g. "cli").
@@ -114,7 +127,7 @@ pub fn build_logging_subscriber(
 /// * `component` - The component name (e.g., "cli", "server", "debug", "llm")
 /// * `use_date_subdir` - Whether to create a date-based subdirectory
 pub fn prepare_log_directory(component: &str, use_date_subdir: bool) -> Result<PathBuf> {
-    let base_log_dir = Paths::in_state_dir("logs");
+    let base_log_dir = log_dir();
 
     let _ = cleanup_old_logs(component);
 
@@ -133,7 +146,7 @@ pub fn prepare_log_directory(component: &str, use_date_subdir: bool) -> Result<P
 }
 
 pub fn cleanup_old_logs(component: &str) -> Result<()> {
-    let base_log_dir = Paths::in_state_dir("logs");
+    let base_log_dir = log_dir();
     let component_dir = base_log_dir.join(component);
 
     if !component_dir.exists() {
